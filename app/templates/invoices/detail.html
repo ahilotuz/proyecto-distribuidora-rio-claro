@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Factura {{ invoice.folio }}{% endblock %}
+{% block content %}
+  <h1>Factura {{ invoice.folio }}</h1>
+  <dl>
+    <dt>RFC del proveedor</dt><dd>{{ invoice.supplier_rfc }}</dd>
+    <dt>Fecha</dt><dd>{{ invoice.invoice_date }}</dd>
+    <dt>Subtotal (MXN)</dt><dd>{{ "%.2f"|format(invoice.subtotal) }}</dd>
+    <dt>Impuestos (MXN)</dt><dd>{{ "%.2f"|format(invoice.taxes) }}</dd>
+    <dt>Total (MXN)</dt><dd>{{ "%.2f"|format(invoice.total) }}</dd>
+    <dt>Estado</dt><dd>{{ invoice.status.value }}</dd>
+  </dl>
+  <form action="{{ url_for('invoice_update_status', invoice_id=invoice.id) }}" method="post">
+    <label for="status">Cambiar estado de revisión</label>
+    <select id="status" name="status">
+      {% for item in statuses %}
+        <option value="{{ item.value }}" {% if item == invoice.status %}selected{% endif %}>{{ item.value }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Guardar estado</button>
+  </form>
+  <p><a href="{{ url_for('invoice_list') }}">Volver al listado</a></p>
+{% endblock %}

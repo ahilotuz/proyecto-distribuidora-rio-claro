@@ -9,7 +9,7 @@
       <ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul>
     </div>
   {% endif %}
-  <form action="{{ url_for('invoice_create') }}" method="post">
+  <form action="{{ url_for('invoice_create') }}" method="post" enctype="multipart/form-data">
     <label for="supplier_rfc">RFC del proveedor</label>
     <input id="supplier_rfc" name="supplier_rfc" maxlength="20" required value="{{ values.get('supplier_rfc', '') }}">
 
@@ -27,6 +27,9 @@
 
     <label for="total">Total (MXN)</label>
     <input id="total" name="total" type="number" min="0" step="0.01" required value="{{ values.get('total', '') }}">
+
+    <label for="source_file">Documento original (PDF, JPG/JPEG o PNG; máximo 10 MiB)</label>
+    <input id="source_file" name="source_file" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required>
 
     <div class="actions"><button type="submit">Guardar para revisión</button></div>
   </form>

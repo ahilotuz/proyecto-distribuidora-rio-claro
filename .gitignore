@@ -9,5 +9,6 @@ __pycache__/
 .coverage
 htmlcov/
 .DS_Store
+var/invoices/
 guia.md
 Proyecto_Distribuidora_Rio_Claro.md

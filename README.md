@@ -4,7 +4,8 @@ Proyecto en desarrollo para recibir facturas de proveedores, facilitar su
 revisión y, con autorización humana, sincronizarlas como borradores en Odoo
 Community. El alcance completo también contempla consultas operativas de
 inventario y analítica. Por ahora, el incremento local permite registrar y
-revisar facturas manualmente; todavía no conecta Odoo ni recibe archivos.
+revisar facturas manualmente y adjuntar el documento original; todavía no
+conecta Odoo ni recibe facturas por correo/WhatsApp o procesa OCR.
 
 El documento de contexto de trabajo se mantiene fuera de este repositorio.
 
@@ -26,6 +27,12 @@ subas ese archivo. Crea el esquema ejecutando:
 ```bash
 alembic upgrade head
 ```
+
+Cada factura nueva requiere un documento PDF, JPG/JPEG o PNG de hasta 10 MiB.
+Los archivos se guardan localmente en `var/invoices/` con permisos privados;
+puedes cambiar la ruta mediante `INVOICE_STORAGE_DIR` en `.env`. La carpeta se
+ignora en Git y debe incluirse en tus respaldos locales si necesitas conservar
+los originales. Las facturas históricas pueden no tener adjunto.
 
 Inicia la aplicación solo para uso local:
 

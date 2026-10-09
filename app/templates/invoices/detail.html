@@ -9,6 +9,15 @@
     <dt>Impuestos (MXN)</dt><dd>{{ "%.2f"|format(invoice.taxes) }}</dd>
     <dt>Total (MXN)</dt><dd>{{ "%.2f"|format(invoice.total) }}</dd>
     <dt>Estado</dt><dd>{{ invoice.status.value }}</dd>
+    {% if invoice.document_key %}
+      <dt>Documento original</dt>
+      <dd>
+        {{ invoice.document_original_name }} ({{ invoice.document_size_bytes }} bytes)
+        <a href="{{ url_for('invoice_document_download', invoice_id=invoice.id) }}">Descargar</a>
+      </dd>
+    {% else %}
+      <dt>Documento original</dt><dd>Este registro histórico no tiene un archivo adjunto.</dd>
+    {% endif %}
   </dl>
   <form action="{{ url_for('invoice_update_status', invoice_id=invoice.id) }}" method="post">
     <label for="status">Cambiar estado de revisión</label>

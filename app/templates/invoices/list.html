@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Facturas{% endblock %}
+{% block content %}
+  <h1>Facturas de proveedores</h1>
+  <p class="notice">Herramienta local en desarrollo. No envía ni contabiliza facturas en Odoo.</p>
+  <p><a href="{{ url_for('invoice_new') }}">Registrar una factura</a></p>
+  {% if invoices %}
+    <table>
+      <thead>
+        <tr><th>RFC</th><th>Folio</th><th>Fecha</th><th>Total (MXN)</th><th>Estado</th></tr>
+      </thead>
+      <tbody>
+        {% for invoice in invoices %}
+          <tr>
+            <td>{{ invoice.supplier_rfc }}</td>
+            <td><a href="{{ url_for('invoice_detail', invoice_id=invoice.id) }}">{{ invoice.folio }}</a></td>
+            <td>{{ invoice.invoice_date }}</td>
+            <td>{{ "%.2f"|format(invoice.total) }}</td>
+            <td>{{ invoice.status.value }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No hay facturas registradas.</p>
+  {% endif %}
+{% endblock %}

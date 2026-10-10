@@ -1,0 +1,3 @@
+[options]
+admin_passwd = replace-with-a-different-strong-local-master-password
+http_interface = 0.0.0.0

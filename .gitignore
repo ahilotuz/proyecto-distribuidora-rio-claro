@@ -10,5 +10,6 @@ __pycache__/
 htmlcov/
 .DS_Store
 var/invoices/
+odoo/odoo.conf
 guia.md
 Proyecto_Distribuidora_Rio_Claro.md

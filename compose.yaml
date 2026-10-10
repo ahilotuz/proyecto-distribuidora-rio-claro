@@ -31,6 +31,9 @@ services:
     volumes:
       - odoo-data:/var/lib/odoo
       - ./odoo/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./custom_addons:/mnt/extra-addons:ro
+    command:
+      - --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons
 
 volumes:
   odoo-db-data-v16:

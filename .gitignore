@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+__pycache__/
+*.py[cod]
 .DS_Store
 odoo/odoo.conf
 guia.md

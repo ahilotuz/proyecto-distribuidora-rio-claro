@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_invoice_intake_list" model="ir.ui.view">
+        <field name="name">rioclaro.invoice.intake.list</field>
+        <field name="model">rioclaro.invoice.intake</field>
+        <field name="arch" type="xml">
+            <list string="Supplier Invoice Emails">
+                <field name="received_at"/>
+                <field name="name"/>
+                <field name="sender_email"/>
+                <field name="source_mailbox"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_invoice_intake_form" model="ir.ui.view">
+        <field name="name">rioclaro.invoice.intake.form</field>
+        <field name="model">rioclaro.invoice.intake</field>
+        <field name="arch" type="xml">
+            <form string="Supplier Invoice Email">
+                <header>
+                    <button name="action_mark_in_review"
+                            type="object"
+                            string="Start Review"
+                            class="oe_highlight"
+                            invisible="state != 'received'"/>
+                    <button name="action_reject"
+                            type="object"
+                            string="Reject"
+                            invisible="state == 'rejected'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="received,in_review,rejected"
+                           readonly="1"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="sender_email"/>
+                            <field name="source_mailbox"/>
+                            <field name="received_at"/>
+                            <field name="source_message_id"/>
+                        </group>
+                        <group>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_invoice_intake" model="ir.actions.act_window">
+        <field name="name">Supplier Invoice Emails</field>
+        <field name="res_model">rioclaro.invoice.intake</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Supplier invoice emails will appear here.
+            </p>
+            <p>Configure each incoming mail server to create Supplier Invoice Email records. Messages from all configured inboxes appear here.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_invoice_intake_root"
+              name="Invoice Intake"
+              sequence="65"
+              groups="account.group_account_invoice"/>
+    <menuitem id="menu_invoice_intake"
+              name="Supplier Emails"
+              parent="menu_invoice_intake_root"
+              action="action_invoice_intake"
+              sequence="10"
+              groups="account.group_account_invoice"/>
+</odoo>

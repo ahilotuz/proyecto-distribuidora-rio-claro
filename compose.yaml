@@ -1,7 +1,7 @@
 services:
   odoo-db:
     image: postgres:16
-    restart: unless-stopped
+    restart: "no"
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: odoo
@@ -17,7 +17,7 @@ services:
 
   odoo:
     image: odoo:20.0
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       odoo-db:
         condition: service_healthy
@@ -26,11 +26,15 @@ services:
       PORT: "5432"
       USER: odoo
       PASSWORD: ${ODOO_DB_PASSWORD:?Set ODOO_DB_PASSWORD in .env}
+      RIOCLARO_SCREENING_FUNCTION_KEY: ${RIOCLARO_SCREENING_FUNCTION_KEY:-}
     ports:
       - "127.0.0.1:${ODOO_HTTP_PORT:-8069}:8069"
     volumes:
       - odoo-data:/var/lib/odoo
       - ./odoo/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./custom_addons:/mnt/extra-addons:ro
+    command:
+      - --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons
 
 volumes:
   odoo-db-data-v16:

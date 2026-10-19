@@ -1,3 +1,4 @@
 [options]
 admin_passwd = replace-with-a-different-strong-local-master-password
 http_interface = 0.0.0.0
+addons_path = /usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons

@@ -2,6 +2,7 @@ from email.message import EmailMessage
 import json
 from unittest.mock import Mock, patch
 
+from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
 
@@ -331,3 +332,110 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
 
         record.action_reject()
         self.assertEqual(record.state, "rejected")
+
+    def test_action_create_vendor_bill_success(self):
+        partner = self.env["res.partner"].create({"name": "Test Supplier SA", "vat": "SUP990101AB1"})
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Supplier Invoice 101",
+                "source_message_id": "<invoice-bill-test-1@example.test>",
+                "partner_id": partner.id,
+                "supplier_rfc": "SUP990101AB1",
+                "invoice_number": "FAC-1001",
+                "invoice_date": "2026-10-15",
+                "amount_untaxed": 1000.0,
+                "amount_tax": 160.0,
+                "amount_total": 1160.0,
+            }
+        )
+        self.env["ir.attachment"].create(
+            {
+                "name": "test_invoice.pdf",
+                "res_model": "rioclaro.invoice.intake",
+                "res_id": record.id,
+                "raw": b"%PDF-1.4 test invoice raw content",
+            }
+        )
+
+        action = record.action_create_vendor_bill()
+
+        self.assertEqual(record.state, "invoiced")
+        self.assertTrue(record.invoice_id)
+        self.assertEqual(record.invoice_id.move_type, "in_invoice")
+        self.assertEqual(record.invoice_id.state, "draft")
+        self.assertEqual(record.invoice_id.partner_id, partner)
+        self.assertEqual(record.invoice_id.ref, "FAC-1001")
+        self.assertEqual(action["res_model"], "account.move")
+        self.assertEqual(action["res_id"], record.invoice_id.id)
+
+        bill_attachments = self.env["ir.attachment"].search(
+            [("res_model", "=", "account.move"), ("res_id", "=", record.invoice_id.id)]
+        )
+        self.assertIn("test_invoice.pdf", bill_attachments.mapped("name"))
+
+    def test_action_create_vendor_bill_auto_creates_partner_from_rfc(self):
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Supplier Invoice From RFC",
+                "source_message_id": "<invoice-bill-test-2@example.test>",
+                "supplier_rfc": "NEW990101XYZ",
+                "amount_total": 500.0,
+            }
+        )
+
+        record.action_create_vendor_bill()
+
+        self.assertTrue(record.partner_id)
+        self.assertEqual(record.partner_id.vat, "NEW990101XYZ")
+        self.assertEqual(record.invoice_id.partner_id, record.partner_id)
+
+    def test_action_create_vendor_bill_fails_without_vendor_or_rfc(self):
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Incomplete Invoice Intake",
+                "source_message_id": "<invoice-bill-test-3@example.test>",
+            }
+        )
+
+        with self.assertRaises(UserError):
+            record.action_create_vendor_bill()
+
+    def test_action_create_vendor_bill_fails_if_already_invoiced(self):
+        partner = self.env["res.partner"].create({"name": "Existing Supplier", "vat": "EXT880101AB1"})
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Invoice To Be Invoiced Twice",
+                "source_message_id": "<invoice-bill-test-4@example.test>",
+                "partner_id": partner.id,
+            }
+        )
+        record.action_create_vendor_bill()
+
+        with self.assertRaises(UserError):
+            record.action_create_vendor_bill()
+
+    def test_action_create_vendor_bill_fails_if_rejected(self):
+        partner = self.env["res.partner"].create({"name": "Rejected Supplier", "vat": "REJ770101AB1"})
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Rejected Invoice Intake",
+                "source_message_id": "<invoice-bill-test-5@example.test>",
+                "partner_id": partner.id,
+                "state": "rejected",
+            }
+        )
+
+        with self.assertRaises(UserError):
+            record.action_create_vendor_bill()
+
+    def test_onchange_supplier_rfc_matches_existing_partner(self):
+        partner = self.env["res.partner"].create({"name": "RFC Match Supplier", "vat": "RFC110203ABC"})
+        record = self.env["rioclaro.invoice.intake"].new(
+            {
+                "name": "Testing RFC matching",
+                "supplier_rfc": "rfc110203abc",
+                "company_id": self.env.company.id,
+            }
+        )
+        record._onchange_supplier_rfc()
+        self.assertEqual(record.partner_id, partner)

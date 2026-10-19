@@ -7,6 +7,9 @@
             <list string="Supplier Invoice Emails">
                 <field name="received_at"/>
                 <field name="name"/>
+                <field name="partner_id"/>
+                <field name="supplier_rfc"/>
+                <field name="amount_total"/>
                 <field name="sender_email"/>
                 <field name="source_mailbox"/>
                 <field name="company_id" groups="base.group_multi_company"/>
@@ -26,27 +29,59 @@
                             string="Start Review"
                             class="oe_highlight"
                             invisible="state != 'received'"/>
+                    <button name="action_create_vendor_bill"
+                            type="object"
+                            string="Create Vendor Bill"
+                            class="oe_highlight"
+                            invisible="state not in ('received', 'in_review')"/>
                     <button name="action_reject"
                             type="object"
                             string="Reject"
-                            invisible="state == 'rejected'"/>
+                            invisible="state in ('rejected', 'invoiced')"/>
                     <field name="state" widget="statusbar"
-                           statusbar_visible="received,in_review,rejected"
+                           statusbar_visible="received,in_review,invoiced,rejected"
                            readonly="1"/>
                 </header>
                 <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_vendor_bill"
+                                type="object"
+                                class="oe_stat_button"
+                                icon="fa-pencil-square-o"
+                                invisible="not invoice_id">
+                            <div class="o_stat_info">
+                                <span class="o_stat_text">Vendor Bill</span>
+                            </div>
+                        </button>
+                    </div>
                     <div class="oe_title">
-                        <h1><field name="name"/></h1>
+                        <label for="name" string="Intake Subject"/>
+                        <h1><field name="name" readonly="state == 'invoiced'"/></h1>
                     </div>
                     <group>
-                        <group>
+                        <group string="Source Email Details">
                             <field name="sender_email"/>
                             <field name="source_mailbox"/>
                             <field name="received_at"/>
                             <field name="source_message_id"/>
                         </group>
+                        <group string="Accounting &amp; Routing">
+                            <field name="company_id" groups="base.group_multi_company" readonly="state == 'invoiced'"/>
+                            <field name="invoice_id" invisible="not invoice_id"/>
+                        </group>
+                    </group>
+                    <group string="Extracted Invoice Data">
                         <group>
-                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="partner_id" readonly="state == 'invoiced'"/>
+                            <field name="supplier_rfc" readonly="state == 'invoiced'"/>
+                            <field name="invoice_number" readonly="state == 'invoiced'"/>
+                            <field name="invoice_date" readonly="state == 'invoiced'"/>
+                        </group>
+                        <group>
+                            <field name="currency_id" readonly="state == 'invoiced'"/>
+                            <field name="amount_untaxed" readonly="state == 'invoiced'"/>
+                            <field name="amount_tax" readonly="state == 'invoiced'"/>
+                            <field name="amount_total" readonly="state == 'invoiced'"/>
                         </group>
                     </group>
                 </sheet>

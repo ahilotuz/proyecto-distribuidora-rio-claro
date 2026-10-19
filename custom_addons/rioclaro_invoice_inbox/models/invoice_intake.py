@@ -5,6 +5,9 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 
+_INTAKE_COMPANY_PARAM = "rioclaro_invoice_inbox.company_id"
+
+
 class SupplierInvoiceIntake(models.Model):
     _name = "rioclaro.invoice.intake"
     _description = "Supplier Invoice Email"
@@ -83,10 +86,21 @@ class SupplierInvoiceIntake(models.Model):
         if existing:
             return existing
 
+        company_id = self.env["ir.config_parameter"].sudo().get_int(
+            _INTAKE_COMPANY_PARAM,
+            default=self.env.company.id,
+        )
+        company = self.env["res.company"].sudo().browse(company_id).exists()
+        if not company:
+            raise UserError(
+                _("The configured company for supplier invoice emails does not exist.")
+            )
+
         values = {
             "name": msg_dict.get("subject") or _("Supplier invoice email"),
             "source_message_id": source_message_id,
             "sender_email": msg_dict.get("email_from"),
+            "company_id": company.id,
         }
         fetchmail_server_id = self.env.context.get("default_fetchmail_server_id")
         if fetchmail_server_id:

@@ -7,3 +7,6 @@ __pycache__/
 odoo/odoo.conf
 guia.md
 Proyecto_Distribuidora_Rio_Claro.md
+azure/email-screening/local.settings.json
+azure/email-screening/.python_packages/
+azure/email-screening/build/

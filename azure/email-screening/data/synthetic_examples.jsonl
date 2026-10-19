@@ -1,0 +1,120 @@
+{"id":"invoice_train_001","split":"train","label":"supplier_invoice","language":"es","text":"Buen día. Adjunto la factura correspondiente a los productos entregados esta semana. Quedamos atentos a cualquier aclaración."}
+{"id":"invoice_train_002","split":"train","label":"supplier_invoice","language":"es","text":"Le compartimos el comprobante fiscal de su compra. El PDF y el archivo XML van incluidos en este correo."}
+{"id":"invoice_train_003","split":"train","label":"supplier_invoice","language":"es","text":"Hola, envío la factura del pedido que recibieron ayer. Si necesitan algún dato adicional, por favor avísenme."}
+{"id":"invoice_train_004","split":"train","label":"supplier_invoice","language":"es","text":"Adjuntamos la factura del servicio de mantenimiento realizado durante el mes. Gracias por su preferencia."}
+{"id":"invoice_train_005","split":"train","label":"supplier_invoice","language":"es","text":"Su factura ya está disponible. En este mensaje encontrará los archivos PDF y XML para descargar y conservar."}
+{"id":"invoice_train_006","split":"train","label":"supplier_invoice","language":"es","text":"Buenas tardes, les mando el documento de cobro de los materiales suministrados, junto con su representación en PDF."}
+{"id":"invoice_train_007","split":"train","label":"supplier_invoice","language":"es","text":"Compartimos la factura emitida por el servicio contratado. El archivo XML está adjunto y el PDF es solo una representación."}
+{"id":"invoice_train_008","split":"train","label":"supplier_invoice","language":"es","text":"Adjunto encontrarán la factura de la entrega de hoy. Favor de confirmar que recibieron correctamente los archivos."}
+{"id":"invoice_train_009","split":"train","label":"supplier_invoice","language":"es","text":"El área de facturación envía el comprobante de su pedido. Se adjuntan el PDF y el XML para su registro."}
+{"id":"invoice_train_010","split":"train","label":"supplier_invoice","language":"es","text":"Hola. Ya generamos la factura solicitada por la compra de refacciones. La envío en formato PDF y XML."}
+{"id":"invoice_train_011","split":"train","label":"supplier_invoice","language":"es","text":"Les hacemos llegar el CFDI de la renta del equipo correspondiente a este periodo. Ambos archivos vienen anexos."}
+{"id":"invoice_train_012","split":"train","label":"supplier_invoice","language":"es","text":"Se adjunta el comprobante fiscal por la compra de insumos. Para dudas sobre el documento, respondan a este mensaje."}
+{"id":"invoice_train_013","split":"train","label":"supplier_invoice","language":"es","text":"Buen día, quedó lista la factura del servicio realizado. Incluimos el XML y una copia legible en PDF."}
+{"id":"invoice_train_014","split":"train","label":"supplier_invoice","language":"es","text":"Por este medio enviamos la factura de los artículos surtidos. El documento fiscal se encuentra adjunto."}
+{"id":"invoice_train_015","split":"train","label":"supplier_invoice","language":"es","text":"Te envío el CFDI de la orden que nos solicitaron. Va adjunto en XML y en PDF para consulta."}
+{"id":"invoice_train_016","split":"train","label":"supplier_invoice","language":"es","text":"Adjunto está la factura por el traslado de mercancía efectuado el viernes. Quedamos disponibles para aclaraciones."}
+{"id":"invoice_train_017","split":"train","label":"supplier_invoice","language":"es","text":"La factura electrónica del servicio de limpieza ya fue timbrada. En este correo van sus archivos."}
+{"id":"invoice_train_018","split":"train","label":"supplier_invoice","language":"es","text":"Buen día. Remitimos el comprobante fiscal de los productos pedidos. Favor de revisar los datos y confirmar recepción."}
+{"id":"invoice_train_019","split":"train","label":"supplier_invoice","language":"es","text":"Anexo la factura por la compra de equipo de protección. También envío el archivo XML para su contabilidad."}
+{"id":"invoice_train_020","split":"train","label":"supplier_invoice","language":"es","text":"Su comprobante de pago y factura están disponibles en el portal; la factura electrónica se adjunta aquí."}
+{"id":"invoice_train_021","split":"train","label":"supplier_invoice","language":"es","text":"Les compartimos el documento fiscal de la reparación solicitada. El archivo PDF contiene el detalle del servicio."}
+{"id":"invoice_train_022","split":"train","label":"supplier_invoice","language":"es","text":"Adjuntamos la factura del suministro de agua del periodo actual para que puedan registrarla."}
+{"id":"invoice_train_023","split":"train","label":"supplier_invoice","language":"es","text":"Hola, ya quedó emitida la factura de los consumibles entregados. Se incluye la versión XML y su PDF."}
+{"id":"invoice_train_024","split":"train","label":"supplier_invoice","language":"es","text":"En seguimiento a su solicitud, enviamos el CFDI de la compra. Ambos formatos se encuentran adjuntos."}
+{"id":"invoice_train_025","split":"train","label":"supplier_invoice","language":"es","text":"Adjunto el recibo fiscal del servicio mensual de soporte técnico. Si falta algún dato, pueden escribirnos."}
+{"id":"invoice_train_026","split":"train","label":"supplier_invoice","language":"es","text":"Buen día, enviamos la factura correspondiente al material que se recibió en almacén. Saludos."}
+{"id":"invoice_train_027","split":"train","label":"supplier_invoice","language":"es","text":"El CFDI de su compra fue generado correctamente. Descargue aquí el PDF y el XML adjuntos."}
+{"id":"invoice_train_028","split":"train","label":"supplier_invoice","language":"es","text":"Por favor encuentren anexa la factura de los trabajos de instalación terminados esta semana."}
+{"id":"invoice_train_029","split":"train","label":"supplier_invoice","language":"es","text":"Compartimos la factura electrónica de la orden atendida. Este mensaje incluye los archivos necesarios para su registro."}
+{"id":"invoice_train_030","split":"train","label":"supplier_invoice","language":"es","text":"Adjunto el comprobante fiscal del pedido reciente. La representación impresa está en PDF y el XML también se incluye."}
+{"id":"invoice_train_031","split":"train","label":"supplier_invoice","language":"es","text":"Le hacemos llegar la factura por el arrendamiento de maquinaria del mes. Gracias y buen día."}
+{"id":"invoice_train_032","split":"train","label":"supplier_invoice","language":"es","text":"Ya puede consultar la factura de la compra realizada con nosotros. Encontrará el PDF adjunto a este correo."}
+{"id":"invoice_train_033","split":"train","label":"supplier_invoice","language":"es","text":"Anexamos el comprobante fiscal por los servicios profesionales prestados durante este periodo."}
+{"id":"invoice_train_034","split":"train","label":"supplier_invoice","language":"es","text":"Buenas tardes. El archivo XML de la factura solicitada y su versión PDF se encuentran adjuntos."}
+{"id":"invoice_train_035","split":"train","label":"supplier_invoice","language":"es","text":"Enviamos la factura por el pedido que salió de nuestras instalaciones. Favor de conservar el comprobante."}
+{"id":"invoice_train_036","split":"train","label":"supplier_invoice","language":"es","text":"La factura del mantenimiento preventivo quedó lista. Se adjuntan el CFDI en XML y su representación en PDF."}
+{"id":"invoice_train_037","split":"train","label":"supplier_invoice","language":"es","text":"Adjuntamos el documento fiscal asociado a la entrega de productos de esta mañana."}
+{"id":"invoice_train_038","split":"train","label":"supplier_invoice","language":"es","text":"Hola, te comparto la factura del servicio de internet de la oficina. Los archivos vienen anexos."}
+{"id":"invoice_train_039","split":"train","label":"supplier_invoice","language":"es","text":"El área administrativa remite el comprobante fiscal de los materiales facturados. Cualquier observación, estamos pendientes."}
+{"id":"invoice_train_040","split":"train","label":"supplier_invoice","language":"es","text":"Su factura electrónica quedó emitida por el importe de la compra. Puede revisar el detalle en el documento adjunto."}
+{"id":"invoice_train_041","split":"train","label":"supplier_invoice","language":"es","text":"Por este medio enviamos el CFDI correspondiente a la asesoría prestada. Se adjuntan los formatos XML y PDF."}
+{"id":"invoice_train_042","split":"train","label":"supplier_invoice","language":"es","text":"Adjunto encontrará la factura del lote de empaques que recibió su equipo. Estamos disponibles para cualquier corrección."}
+{"id":"invoice_train_043","split":"train","label":"supplier_invoice","language":"es","text":"Se emitió el comprobante fiscal por la compra de herramientas. Lo encontrará en los dos formatos habituales."}
+{"id":"invoice_train_044","split":"train","label":"supplier_invoice","language":"es","text":"Buenas, envío la factura de los uniformes entregados el lunes. El XML y el PDF van en este mensaje."}
+{"id":"invoice_train_045","split":"train","label":"supplier_invoice","language":"es","text":"Adjunto la factura de electricidad correspondiente al local durante el último ciclo."}
+{"id":"invoice_train_046","split":"train","label":"supplier_invoice","language":"es","text":"Gracias por su compra. Aquí está el comprobante fiscal que solicitaron, con la factura en PDF y XML."}
+{"id":"invoice_train_047","split":"train","label":"supplier_invoice","language":"es","text":"El documento de facturación del servicio de fumigación está listo y se adjunta para su control interno."}
+{"id":"invoice_train_048","split":"train","label":"supplier_invoice","language":"es","text":"Te enviamos la factura del material de oficina que surtimos. Avísanos si necesitas que la reenviemos."}
+{"id":"invoice_train_049","split":"train","label":"supplier_invoice","language":"es","text":"La factura de la compra fue emitida hoy. Incluimos un archivo para impresión y el XML correspondiente."}
+{"id":"invoice_train_050","split":"train","label":"supplier_invoice","language":"es","text":"Anexo el CFDI por el servicio de calibración de sus equipos. El folio y los datos fiscales están en el documento."}
+{"id":"invoice_test_001","split":"test","label":"supplier_invoice","language":"es","text":"Buen día, les compartimos la factura del pedido de herramientas. El PDF y el XML están adjuntos."}
+{"id":"invoice_test_002","split":"test","label":"supplier_invoice","language":"es","text":"Su comprobante fiscal por el servicio de mensajería ya está listo; lo encontrará en este correo."}
+{"id":"invoice_test_003","split":"test","label":"supplier_invoice","language":"es","text":"Adjunto va el CFDI correspondiente a las piezas que entregamos ayer. Quedamos atentos."}
+{"id":"invoice_test_004","split":"test","label":"supplier_invoice","language":"es","text":"Enviamos la factura electrónica de la renta del equipo. Incluimos ambos archivos para su registro."}
+{"id":"invoice_test_005","split":"test","label":"supplier_invoice","language":"es","text":"Hola, quedó lista la factura solicitada por la compra. La pueden descargar desde nuestro portal; no lleva archivo adjunto."}
+{"id":"invoice_test_006","split":"test","label":"supplier_invoice","language":"es","text":"Adjuntamos la factura del servicio de reparación y su archivo XML para que puedan contabilizarla."}
+{"id":"invoice_test_007","split":"test","label":"supplier_invoice","language":"es","text":"Te envío el comprobante fiscal de los suministros entregados esta semana en formato PDF."}
+{"id":"invoice_test_008","split":"test","label":"supplier_invoice","language":"es","text":"La factura del mantenimiento de sus instalaciones está disponible en el enlace de descarga, sin archivos adjuntos."}
+{"id":"invoice_test_009","split":"test","label":"supplier_invoice","language":"es","text":"Anexo el CFDI por los consumibles del mes, con la representación impresa y el XML."}
+{"id":"invoice_test_010","split":"test","label":"supplier_invoice","language":"es","text":"Buenas tardes, les hacemos llegar la factura correspondiente al servicio prestado. Favor de confirmar recepción."}
+{"id":"other_train_001","split":"train","label":"not_invoice","language":"es","text":"Buen día. Confirmamos que su pedido fue recibido y comenzaremos a prepararlo. Le avisaremos cuando salga a reparto."}
+{"id":"other_train_002","split":"train","label":"not_invoice","language":"es","text":"Le enviamos la cotización solicitada. Los precios tienen vigencia de quince días y todavía no se ha generado ningún cobro."}
+{"id":"other_train_003","split":"train","label":"not_invoice","language":"es","text":"Su pago fue recibido correctamente. Este mensaje confirma la transacción y no requiere respuesta."}
+{"id":"other_train_004","split":"train","label":"not_invoice","language":"es","text":"Recordatorio: mañana realizaremos la visita de mantenimiento. Favor de confirmar que habrá alguien para recibirnos."}
+{"id":"other_train_005","split":"train","label":"not_invoice","language":"es","text":"Conozca nuestras promociones de temporada y aproveche los descuentos disponibles en toda la tienda."}
+{"id":"other_train_006","split":"train","label":"not_invoice","language":"es","text":"Su pedido ya fue enviado. Puede consultar el estado del paquete con el número de seguimiento en nuestro sitio."}
+{"id":"other_train_007","split":"train","label":"not_invoice","language":"es","text":"Adjuntamos la propuesta comercial con el alcance y el calendario del proyecto. Quedamos pendientes de sus comentarios."}
+{"id":"other_train_008","split":"train","label":"not_invoice","language":"es","text":"Gracias por comunicarse con soporte. Su solicitud quedó registrada y nuestro equipo responderá pronto."}
+{"id":"other_train_009","split":"train","label":"not_invoice","language":"es","text":"La reunión de seguimiento será el jueves a las diez. Si necesita cambiar el horario, responda a este correo."}
+{"id":"other_train_010","split":"train","label":"not_invoice","language":"es","text":"Le informamos que actualizamos nuestro aviso de privacidad. Puede consultar los cambios en nuestra página."}
+{"id":"other_train_011","split":"train","label":"not_invoice","language":"es","text":"Tu contraseña se modificó correctamente. Si no solicitaste el cambio, contacta al equipo de seguridad."}
+{"id":"other_train_012","split":"train","label":"not_invoice","language":"es","text":"El producto que preguntó estará disponible nuevamente la próxima semana. Le avisaremos cuando llegue."}
+{"id":"other_train_013","split":"train","label":"not_invoice","language":"es","text":"Adjunto encontrará el catálogo actualizado de piezas y sus especificaciones técnicas."}
+{"id":"other_train_014","split":"train","label":"not_invoice","language":"es","text":"Confirmamos la reservación de la sala para el martes. La invitación del calendario se enviará por separado."}
+{"id":"other_train_015","split":"train","label":"not_invoice","language":"es","text":"Su solicitud de devolución está en proceso. Le compartiremos el resultado cuando termine la revisión."}
+{"id":"other_train_016","split":"train","label":"not_invoice","language":"es","text":"Muchas gracias por la llamada de hoy. Enviaremos una propuesta con las opciones que comentamos."}
+{"id":"other_train_017","split":"train","label":"not_invoice","language":"es","text":"Hay una nueva versión de la aplicación disponible. Actualícela desde la tienda para obtener las mejoras."}
+{"id":"other_train_018","split":"train","label":"not_invoice","language":"es","text":"Te compartimos las instrucciones para instalar el equipo. No dudes en escribir si surge alguna pregunta."}
+{"id":"other_train_019","split":"train","label":"not_invoice","language":"es","text":"Confirmamos la recepción de los documentos para completar su expediente de proveedor."}
+{"id":"other_train_020","split":"train","label":"not_invoice","language":"es","text":"Le invitamos a responder nuestra encuesta de servicio. Sus comentarios nos ayudan a mejorar."}
+{"id":"other_train_021","split":"train","label":"not_invoice","language":"es","text":"El chofer llegará aproximadamente a las cuatro para recoger el material que nos indicaron."}
+{"id":"other_train_022","split":"train","label":"not_invoice","language":"es","text":"Su pago está pendiente de conciliación bancaria; este aviso es informativo y no incluye una factura."}
+{"id":"other_train_023","split":"train","label":"not_invoice","language":"es","text":"Compartimos el reporte de las actividades realizadas durante la visita técnica de ayer."}
+{"id":"other_train_024","split":"train","label":"not_invoice","language":"es","text":"La orden quedó autorizada y ya se programó la entrega para el próximo miércoles."}
+{"id":"other_train_025","split":"train","label":"not_invoice","language":"es","text":"Por mantenimiento, el portal no estará disponible este sábado entre las ocho y las diez."}
+{"id":"other_train_026","split":"train","label":"not_invoice","language":"es","text":"Adjuntamos el contrato actualizado para que lo revise su equipo jurídico antes de la firma."}
+{"id":"other_train_027","split":"train","label":"not_invoice","language":"es","text":"Te escribimos para confirmar la dirección de entrega antes de preparar el envío."}
+{"id":"other_train_028","split":"train","label":"not_invoice","language":"es","text":"Su solicitud de cambio de contraseña se completó. Ya puede ingresar con sus nuevas credenciales."}
+{"id":"other_train_029","split":"train","label":"not_invoice","language":"es","text":"El equipo quedó instalado y funcionando. Adjunto compartimos el manual de operación."}
+{"id":"other_train_030","split":"train","label":"not_invoice","language":"es","text":"Tenemos nuevos horarios de atención a clientes a partir del próximo mes."}
+{"id":"other_train_031","split":"train","label":"not_invoice","language":"es","text":"El presupuesto de reparación está listo para su aprobación. Todavía no se ha realizado el trabajo."}
+{"id":"other_train_032","split":"train","label":"not_invoice","language":"es","text":"Gracias por registrarse al seminario. Aquí está el enlace para conectarse el día del evento."}
+{"id":"other_train_033","split":"train","label":"not_invoice","language":"es","text":"El paquete se entregó en recepción a las once con veinte. Puede consultar la prueba de entrega en línea."}
+{"id":"other_train_034","split":"train","label":"not_invoice","language":"es","text":"Se actualizó el calendario de mantenimiento preventivo. La próxima visita está prevista para agosto."}
+{"id":"other_train_035","split":"train","label":"not_invoice","language":"es","text":"Le compartimos una guía para solicitar soporte y revisar las preguntas frecuentes."}
+{"id":"other_train_036","split":"train","label":"not_invoice","language":"es","text":"Adjunto va la ficha técnica del producto que consultó. Si necesita una muestra, podemos coordinar el envío."}
+{"id":"other_train_037","split":"train","label":"not_invoice","language":"es","text":"Su transferencia está en proceso de confirmación. El banco nos notificará cuando el movimiento concluya."}
+{"id":"other_train_038","split":"train","label":"not_invoice","language":"es","text":"La próxima semana realizaremos un inventario físico. Por favor aseguren el acceso a la bodega."}
+{"id":"other_train_039","split":"train","label":"not_invoice","language":"es","text":"Le mandamos la presentación de los nuevos productos que vimos durante la reunión."}
+{"id":"other_train_040","split":"train","label":"not_invoice","language":"es","text":"Recordatorio de que su periodo de prueba termina el viernes. Puede elegir un plan desde su cuenta."}
+{"id":"other_train_041","split":"train","label":"not_invoice","language":"es","text":"El técnico terminó el diagnóstico y enviará la cotización de las piezas necesarias mañana."}
+{"id":"other_train_042","split":"train","label":"not_invoice","language":"es","text":"Confirmamos el registro de su nuevo contacto de compras en el directorio de clientes."}
+{"id":"other_train_043","split":"train","label":"not_invoice","language":"es","text":"La entrega se retrasó por condiciones del clima. Le avisaremos cuando el paquete vuelva a estar en ruta."}
+{"id":"other_train_044","split":"train","label":"not_invoice","language":"es","text":"Adjuntamos las fotografías del trabajo terminado para que pueda validar el resultado."}
+{"id":"other_train_045","split":"train","label":"not_invoice","language":"es","text":"Su cuenta se inició desde un dispositivo nuevo. Si reconoce esta actividad, no necesita hacer nada."}
+{"id":"other_train_046","split":"train","label":"not_invoice","language":"es","text":"Gracias por su preferencia. Use el código de descuento en su próxima compra antes de fin de mes."}
+{"id":"other_train_047","split":"train","label":"not_invoice","language":"es","text":"El formulario de alta de proveedor está incompleto. Faltan los datos de contacto y la cuenta bancaria."}
+{"id":"other_train_048","split":"train","label":"not_invoice","language":"es","text":"La junta del comité se movió al viernes. La nueva invitación ya está en su calendario."}
+{"id":"other_train_049","split":"train","label":"not_invoice","language":"es","text":"Le confirmamos que el pedido se canceló según su solicitud. No se generó ningún cargo."}
+{"id":"other_train_050","split":"train","label":"not_invoice","language":"es","text":"Nos gustaría conocer su opinión sobre el servicio de entrega. La encuesta toma menos de dos minutos."}
+{"id":"other_test_001","split":"test","label":"not_invoice","language":"es","text":"Su compra fue aprobada y estamos preparando el envío. Recibirá otra notificación cuando salga del almacén."}
+{"id":"other_test_002","split":"test","label":"not_invoice","language":"es","text":"Adjuntamos la cotización para el proyecto solicitado. Este documento no es un comprobante de pago."}
+{"id":"other_test_003","split":"test","label":"not_invoice","language":"es","text":"Le recordamos que el mantenimiento preventivo será mañana por la tarde."}
+{"id":"other_test_004","split":"test","label":"not_invoice","language":"es","text":"Su devolución fue autorizada y verá el abono reflejado en los próximos días."}
+{"id":"other_test_005","split":"test","label":"not_invoice","language":"es","text":"Tenemos una oferta especial en herramientas durante esta semana. Visite nuestra tienda para conocerla."}
+{"id":"other_test_006","split":"test","label":"not_invoice","language":"es","text":"El número de seguimiento de su paquete ya está disponible en el portal."}
+{"id":"other_test_007","split":"test","label":"not_invoice","language":"es","text":"Adjunto enviamos el reporte de diagnóstico. La reparación todavía está pendiente de aprobación."}
+{"id":"other_test_008","split":"test","label":"not_invoice","language":"es","text":"Confirmamos que recibimos su formulario de actualización de datos de contacto."}
+{"id":"other_test_009","split":"test","label":"not_invoice","language":"es","text":"La reunión se cambió al miércoles a las nueve. Gracias por actualizar su calendario."}
+{"id":"other_test_010","split":"test","label":"not_invoice","language":"es","text":"Su pago quedó registrado. Este correo es únicamente la confirmación de la transacción."}

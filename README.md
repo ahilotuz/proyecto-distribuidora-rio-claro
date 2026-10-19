@@ -67,3 +67,52 @@ WhatsApp ingestion, OCR, invoice-to-bill conversion, and production mail
 configuration are later increments. Actual email retrieval requires working
 incoming-mail server configurations; the local automated tests simulate
 incoming messages and do not connect to external mailboxes.
+
+## Azure email screening foundation
+
+The Azure Function in `azure/email-screening/` classifies incoming message
+text and returns a route: `ignore`, `review`, or `inspect_attachments`. The
+Odoo invoice inbox add-on can call this Function before creating an intake
+record. Screening is disabled by default and must be explicitly configured
+before any incoming-mail server is polled.
+
+Incoming invoice records use the company configured by the
+`rioclaro_invoice_inbox.company_id` system parameter. Set it to the numeric
+database ID of the company that owns the configured invoice inbox; if unset,
+Odoo falls back to the processing user's company. This matters because Odoo
+filters intake records by the companies selected in the current session. This
+setting applies to all incoming invoice mail; separate company-specific
+mailboxes will need explicit per-mailbox company mapping.
+
+For the local development test:
+
+1. Start the local Function host on the Docker bridge gateway reachable by
+   Odoo (for this Compose network, `172.21.0.1:7071`). Follow
+   `azure/email-screening/README.md`; do not bind the development host to a
+   public interface.
+2. In Odoo **Settings → Technical → Parameters → System Parameters**, set:
+   `rioclaro_invoice_inbox.screening_enabled` to `True` and
+   `rioclaro_invoice_inbox.screening_url` to
+   `http://172.21.0.1:7071/api/screen-email`.
+3. Restart the Odoo container after changing `.env` or Compose configuration.
+   The optional `RIOCLARO_SCREENING_FUNCTION_KEY` environment variable is for
+   a hosted Function key; leave it unset for local Core Tools.
+4. Test the Odoo-to-Function connection and invoice/non-invoice routing before
+   enabling or using **Fetch Now** on an incoming-mail server.
+
+Do not use **Fetch Now** while the Function is unavailable. Odoo may mark a
+message as handled after a screening error; correct the connection and resend
+that test message if this occurs.
+
+**Fetch Now processes all unread mail on that server, not only the two test
+messages.** Use a disposable test mailbox or make sure the configured inbox has
+no other unread messages before running it.
+
+Only messages classified as `supplier_invoice` with route
+`inspect_attachments` are retained for the invoice-intake route. This screens
+the email text plus whether an attachment exists. It does **not** read or
+verify attachment contents, prove a document is an invoice, or extract invoice
+data. The fictional training and holdout examples are for learning only;
+their synthetic evaluation is not evidence of real-world accuracy. Do not use
+this filter for production decisions without representative evaluation and
+document-level validation.

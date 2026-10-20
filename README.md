@@ -81,10 +81,34 @@ To enable real email retrieval:
 Use a mailbox created for development. Mailbox credentials belong in Odoo's
 settings, not in this repository.
 
-The intake menu is available to users in the accounting group. Telegram and
-WhatsApp ingestion and production mail configuration are later increments. Actual email retrieval requires working
-incoming-mail server configurations; the local automated tests simulate
-incoming messages and do not connect to external mailboxes.
+The intake menu is available to users in the accounting group. WhatsApp
+ingestion and production mail configuration are later increments. Actual email
+retrieval requires working incoming-mail server configurations; the local
+automated tests simulate incoming messages and do not connect to external
+mailboxes.
+
+### Telegram invoice intake
+
+Suppliers or staff can send a PDF, JPEG, PNG, or photo to the Telegram bot. A
+scheduled action (every minute) polls the bot, creates one intake record per
+file (`Received In` shows **Telegram**), saves the file as an attachment, and
+replies "Recibido". Repeated deliveries of the same message do not create
+duplicates. Use **Extract Invoice Data** on the record as with email.
+
+1. Create a bot with @BotFather and set `RIOCLARO_TELEGRAM_BOT_TOKEN` in the
+   ignored `.env` file (see `.env.example`). Never commit the token.
+2. In **Settings → Technical → System Parameters**, set
+   `rioclaro_invoice_inbox.telegram_allowed_user_ids` to the comma-separated
+   Telegram user IDs that may send files (an ID is shown by @userinfobot).
+   Other senders get "No autorizado." and nothing is stored. An empty value
+   allows nobody.
+3. Set `rioclaro_invoice_inbox.telegram_polling_enabled` to `True` in the one
+   database that should poll the bot. Polling is off by default because a bot
+   token must be polled by a single database only; otherwise databases
+   compete for the same messages.
+
+This MVP uses polling and a sender allowlist only. A webhook with signature
+verification and WhatsApp are later increments.
 
 ## Azure email screening foundation
 

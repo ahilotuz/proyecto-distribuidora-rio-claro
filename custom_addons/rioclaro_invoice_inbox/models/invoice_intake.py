@@ -1,11 +1,18 @@
 import json
+import os
 from hashlib import sha256
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
+from .document_intelligence import (
+    AzureDocumentIntelligenceClient,
+    DocumentIntelligenceError,
+)
+
 
 _INTAKE_COMPANY_PARAM = "rioclaro_invoice_inbox.company_id"
+_EXTRACTABLE_MIMETYPES = {"application/pdf", "image/jpeg", "image/png"}
 
 
 class SupplierInvoiceIntake(models.Model):
@@ -65,6 +72,18 @@ class SupplierInvoiceIntake(models.Model):
         currency_field="currency_id",
         tracking=True,
     )
+    extraction_state = fields.Selection(
+        [
+            ("pending", "Pending Extraction"),
+            ("extracted", "Extracted"),
+            ("error", "Extraction Error"),
+        ],
+        string="Extraction Status",
+        default="pending",
+        required=True,
+        tracking=True,
+        copy=False,
+    )
     invoice_id = fields.Many2one(
         "account.move",
         string="Vendor Bill",
@@ -82,6 +101,12 @@ class SupplierInvoiceIntake(models.Model):
         required=True,
         tracking=True,
         index=True,
+    )
+    extracted_line_ids = fields.One2many(
+        "rioclaro.invoice.intake.line",
+        "intake_id",
+        string="Extracted Lines",
+        copy=False,
     )
 
     _source_message_id_unique = models.Constraint(
@@ -212,7 +237,74 @@ class SupplierInvoiceIntake(models.Model):
             {"state": "rejected"}
         )
         return True
+    
+    def _get_extractable_attachment(self):
+        """Return the first PDF/JPEG/PNG attachment of this intake, or an empty recordset."""
+        self.ensure_one()
+        attachments = self.env["ir.attachment"].search([
+            ("res_model", "=", self._name),
+            ("res_id", "=", self.id),
+        ]) | self.message_ids.attachment_ids
+        for attachment in attachments.sorted("id"):
+            if attachment.mimetype in _EXTRACTABLE_MIMETYPES:
+                return attachment
+        return self.env["ir.attachment"]
 
+    def action_extract_invoice_data(self) -> bool:
+        """Send the first supported attachment to Azure and store the extracted data.
+
+        Configuration or attachment problems raise a UserError without changing
+        data. Azure failures set the extraction status to 'error' and log the
+        reason in the chatter, so the email and its attachments are never lost.
+        """
+        self.ensure_one()
+        endpoint = os.environ.get("RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT", "")
+        api_key = os.environ.get("RIOCLARO_DOCUMENT_INTELLIGENCE_KEY", "")
+        if not endpoint or not api_key:
+            raise UserError(_("Azure Document Intelligence is not configured."))
+        attachment = self._get_extractable_attachment()
+        if not attachment:
+            raise UserError(_("No PDF, JPEG or PNG attachment found to extract."))
+
+        client = AzureDocumentIntelligenceClient(endpoint, api_key)
+        try:
+            result = client.analyze_invoice(
+                attachment.raw, attachment.mimetype
+            )
+        except DocumentIntelligenceError as error:
+            self.extraction_state = "error"
+            self.message_post(body=_("Invoice extraction failed: %s", str(error)))
+            return False
+
+        values = {
+            "supplier_rfc": result.supplier_rfc or self.supplier_rfc,
+            "invoice_number": result.invoice_number or self.invoice_number,
+            "invoice_date": result.invoice_date or self.invoice_date,
+            "amount_untaxed": result.amount_untaxed or 0.0,
+            "amount_tax": result.amount_tax or 0.0,
+            "amount_total": result.amount_total or 0.0,
+            "extraction_state": "extracted",
+        }
+        currency = self.env["res.currency"].search(
+            [("name", "=", result.currency_code or "")], limit=1
+        )
+        if currency:
+            values["currency_id"] = currency.id
+        self.write(values)
+        self.extracted_line_ids.unlink()
+        self.env["rioclaro.invoice.intake.line"].create([
+            {
+                "intake_id": self.id,
+                "description": line.description or _("Line"),
+                "quantity": line.quantity or 0.0,
+                "unit_price": line.unit_price or 0.0,
+                "amount": line.amount or 0.0,
+                "confidence": line.confidence or 0.0,
+            }
+            for line in result.lines
+        ])
+        return True
+    
     def action_create_vendor_bill(self) -> dict:
         """Create a draft vendor bill in account.move from this intake record.
 
@@ -264,9 +356,23 @@ class SupplierInvoiceIntake(models.Model):
             "ref": self.invoice_number or self.name,
             "invoice_date": self.invoice_date or fields.Date.context_today(self),
         }
-
-        line_price = self.amount_untaxed or self.amount_total
-        if line_price and line_price > 0:
+        
+        if self.extracted_line_ids:
+            bill_vals["invoice_line_ids"] = [
+                (
+                    0,
+                    0,
+                    {
+                        "name": line.description,
+                        "quantity": line.quantity or 1.0,
+                        "price_unit": line.unit_price
+                        or (line.amount / (line.quantity or 1.0)),
+                    },
+                )
+                for line in self.extracted_line_ids
+            ]
+        elif (self.amount_untaxed or self.amount_total) > 0:
+            line_price = self.amount_untaxed or self.amount_total
             bill_vals["invoice_line_ids"] = [
                 (
                     0,

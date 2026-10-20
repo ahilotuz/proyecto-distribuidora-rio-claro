@@ -43,8 +43,27 @@ the same intake queue, with the incoming server name recorded in **Received
 In**. Odoo stores the original email and its attachments in the intake
 record's chatter. Repeated emails with the same `Message-ID` do not create
 duplicate intake records. Accountants can move records to review or reject
-them. This initial increment does not extract invoice values or create vendor
-bills automatically.
+them. Invoice values are extracted only when a reviewer clicks **Extract Invoice
+Data** (see below), and vendor bills are always created as drafts by a reviewer.
+
+### Azure Document Intelligence extraction
+
+The **Extract Invoice Data** button sends the first PDF, JPEG, or PNG
+attachment of an intake record to the Azure `prebuilt-invoice` model. It fills
+the vendor RFC, invoice number and date, currency, subtotal, taxes, total, and
+the extracted line items. If Azure fails, the status becomes **Extraction
+Error**, the reason is posted in the chatter, and the email and attachments are
+kept so the reviewer can retry or enter the data manually. **Create Vendor
+Bill** builds a draft bill with one line per extracted line.
+
+Set these variables in the ignored `.env` file (see `.env.example`); never
+commit the key:
+
+- `RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT`
+- `RIOCLARO_DOCUMENT_INTELLIGENCE_KEY`
+
+Upgrade an existing database after pulling these changes:
+`odoo -d <database> -u rioclaro_invoice_inbox`.
 
 The add-on is mounted read-only from `custom_addons/` into the Odoo container.
 To enable real email retrieval:
@@ -63,8 +82,7 @@ Use a mailbox created for development. Mailbox credentials belong in Odoo's
 settings, not in this repository.
 
 The intake menu is available to users in the accounting group. Telegram and
-WhatsApp ingestion, OCR, invoice-to-bill conversion, and production mail
-configuration are later increments. Actual email retrieval requires working
+WhatsApp ingestion and production mail configuration are later increments. Actual email retrieval requires working
 incoming-mail server configurations; the local automated tests simulate
 incoming messages and do not connect to external mailboxes.
 

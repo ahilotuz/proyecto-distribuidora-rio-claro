@@ -3,6 +3,14 @@ import json
 from unittest.mock import Mock, patch
 
 from odoo.exceptions import UserError
+from odoo.addons.rioclaro_invoice_inbox.models.document_intelligence import (
+    AzureDocumentIntelligenceClient,
+    DocumentIntelligenceError,
+)
+from odoo.addons.rioclaro_invoice_inbox.models.document_intelligence import (
+    ExtractedInvoiceLine,
+    InvoiceExtraction,
+)
 from odoo.tests import TransactionCase, tagged
 
 
@@ -14,6 +22,149 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
             "rioclaro_invoice_inbox.screening_enabled",
             False,
         )
+
+    @patch(
+        "odoo.addons.rioclaro_invoice_inbox.models.document_intelligence.urlopen"
+    )
+    def test_document_intelligence_extracts_invoice_fields_and_lines(
+        self,
+        urlopen_mock,
+    ):
+        endpoint = "https://resource.example.test"
+        operation_url = (
+            "https://resource.example.test/documentintelligence/"
+            "documentModels/prebuilt-invoice/analyzeResults/operation-id"
+        )
+        accepted_response = Mock()
+        accepted_response.headers = {"operation-location": operation_url}
+        accepted_response.__enter__ = Mock(return_value=accepted_response)
+        accepted_response.__exit__ = Mock(return_value=False)
+
+        result_response = Mock()
+        result_response.read.return_value = json.dumps(
+            {
+                "status": "succeeded",
+                "analyzeResult": {
+                    "documents": [
+                        {
+                            "fields": {
+                                "VendorTaxId": {
+                                    "valueString": "SUP990101AB1",
+                                    "confidence": 0.98,
+                                },
+                                "VendorName": {
+                                    "valueString": "Contoso Ltd.",
+                                    "confidence": 0.98,
+                                },
+                                "InvoiceId": {
+                                    "valueString": "FAC-1001",
+                                    "confidence": 0.99,
+                                },
+                                "InvoiceDate": {
+                                    "valueDate": "2026-10-15",
+                                    "confidence": 0.97,
+                                },
+                                "SubTotal": {
+                                    "valueCurrency": {"amount": 1000.0},
+                                    "confidence": 0.95,
+                                },
+                                "TotalTax": {
+                                    "valueCurrency": {"amount": 160.0},
+                                    "confidence": 0.94,
+                                },
+                                "InvoiceTotal": {
+                                    "valueCurrency": {
+                                        "amount": 1160.0,
+                                        "currencyCode": "MXN",
+                                    },
+                                    "confidence": 0.99,
+                                },
+                                "Items": {
+                                    "valueArray": [
+                                        {
+                                            "confidence": 0.93,
+                                            "valueObject": {
+                                                "Description": {
+                                                    "valueString": "Office supplies"
+                                                },
+                                                "Quantity": {"valueNumber": 2},
+                                                "UnitPrice": {
+                                                    "valueCurrency": {"amount": 500.0}
+                                                },
+                                                "Amount": {
+                                                    "valueCurrency": {"amount": 1000.0}
+                                                },
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        }
+                    ]
+                },
+            }
+        ).encode()
+        result_response.__enter__ = Mock(return_value=result_response)
+        result_response.__exit__ = Mock(return_value=False)
+        urlopen_mock.side_effect = [accepted_response, result_response]
+
+        extraction = AzureDocumentIntelligenceClient(
+            endpoint,
+            "test-key",
+            poll_interval=0,
+        ).analyze_invoice(b"%PDF-invoice", "application/pdf")
+
+        self.assertEqual(extraction.supplier_rfc, "SUP990101AB1")
+        self.assertEqual(extraction.supplier_name, "Contoso Ltd.")
+        self.assertEqual(extraction.invoice_number, "FAC-1001")
+        self.assertEqual(extraction.invoice_date, "2026-10-15")
+        self.assertEqual(extraction.currency_code, "MXN")
+        self.assertEqual(extraction.amount_untaxed, 1000.0)
+        self.assertEqual(extraction.amount_tax, 160.0)
+        self.assertEqual(extraction.amount_total, 1160.0)
+        self.assertEqual(extraction.confidence_scores["amount_total"], 0.99)
+        self.assertEqual(extraction.lines[0].description, "Office supplies")
+        self.assertEqual(extraction.lines[0].quantity, 2.0)
+        self.assertEqual(extraction.lines[0].unit_price, 500.0)
+        self.assertEqual(extraction.lines[0].amount, 1000.0)
+        self.assertEqual(urlopen_mock.call_count, 2)
+        self.assertEqual(
+            urlopen_mock.call_args_list[0].args[0].data,
+            b"%PDF-invoice",
+        )
+
+    def test_document_intelligence_rejects_unsupported_documents(self):
+        client = AzureDocumentIntelligenceClient(
+            "https://resource.example.test",
+            "test-key",
+        )
+
+        with self.assertRaises(ValueError):
+            client.analyze_invoice(b"not a supported document", "text/plain")
+
+    @patch(
+        "odoo.addons.rioclaro_invoice_inbox.models.document_intelligence.urlopen"
+    )
+    def test_document_intelligence_rejects_untrusted_operation_url(
+        self,
+        urlopen_mock,
+    ):
+        response = Mock()
+        response.headers = {
+            "operation-location": "https://attacker.example.test/operation"
+        }
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        urlopen_mock.return_value = response
+        client = AzureDocumentIntelligenceClient(
+            "https://resource.example.test",
+            "test-key",
+        )
+
+        with self.assertRaises(DocumentIntelligenceError):
+            client.analyze_invoice(b"%PDF-invoice", "application/pdf")
+
+        self.assertEqual(urlopen_mock.call_count, 1)
 
     def test_screening_keeps_invoice_intake_route(self):
         routes = [
@@ -439,3 +590,137 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
         )
         record._onchange_supplier_rfc()
         self.assertEqual(record.partner_id, partner)
+
+    def _create_intake_with_pdf(self, message_id: str):
+        """Create an intake record with a PDF attachment for extraction tests."""
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {"name": "Extraction test", "source_message_id": message_id}
+        )
+        self.env["ir.attachment"].create(
+            {
+                "name": "invoice.pdf",
+                "mimetype": "application/pdf",
+                "raw": b"%PDF-1.4 test",
+                "res_model": "rioclaro.invoice.intake",
+                "res_id": record.id,
+            }
+        )
+        return record
+
+    def _fake_extraction(self) -> InvoiceExtraction:
+        """Return a canned Azure extraction result."""
+        return InvoiceExtraction(
+            supplier_rfc="SUP990101AB1",
+            supplier_name="Test Supplier SA",
+            invoice_number="INV-100",
+            invoice_date="2026-10-15",
+            currency_code="USD",
+            amount_untaxed=100.0,
+            amount_tax=10.0,
+            amount_total=110.0,
+            confidence_scores={},
+            lines=(
+                ExtractedInvoiceLine(
+                    description="Widget",
+                    quantity=2.0,
+                    unit_price=50.0,
+                    amount=100.0,
+                    confidence=0.9,
+                ),
+            ),
+        )
+
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT": "https://example.test",
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_KEY": "fake-key",
+        },
+    )
+    @patch.object(AzureDocumentIntelligenceClient, "analyze_invoice")
+    def test_action_extract_invoice_data_success(self, analyze_mock):
+        analyze_mock.return_value = self._fake_extraction()
+        record = self._create_intake_with_pdf("<extract-ok@example.test>")
+
+        self.assertTrue(record.action_extract_invoice_data())
+
+        self.assertEqual(record.extraction_state, "extracted")
+        self.assertEqual(record.invoice_number, "INV-100")
+        self.assertEqual(record.supplier_rfc, "SUP990101AB1")
+        self.assertEqual(record.amount_total, 110.0)
+        self.assertEqual(record.currency_id.name, "USD")
+        self.assertEqual(len(record.extracted_line_ids), 1)
+        self.assertEqual(record.extracted_line_ids.description, "Widget")
+
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT": "https://example.test",
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_KEY": "fake-key",
+        },
+    )
+    @patch.object(
+        AzureDocumentIntelligenceClient,
+        "analyze_invoice",
+        side_effect=DocumentIntelligenceError("boom"),
+    )
+    def test_action_extract_invoice_data_azure_error_keeps_data(self, _analyze_mock):
+        record = self._create_intake_with_pdf("<extract-error@example.test>")
+
+        self.assertFalse(record.action_extract_invoice_data())
+
+        self.assertEqual(record.extraction_state, "error")
+        self.assertFalse(record.extracted_line_ids)
+        self.assertTrue(
+            self.env["ir.attachment"].search_count(
+                [("res_model", "=", "rioclaro.invoice.intake"), ("res_id", "=", record.id)]
+            )
+        )
+
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT": "https://example.test",
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_KEY": "fake-key",
+        },
+    )
+    def test_action_extract_invoice_data_requires_attachment(self):
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {"name": "No attachment", "source_message_id": "<extract-none@example.test>"}
+        )
+        with self.assertRaises(UserError):
+            record.action_extract_invoice_data()
+
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT": "",
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_KEY": "",
+        },
+    )
+    def test_action_extract_invoice_data_requires_configuration(self):
+        record = self._create_intake_with_pdf("<extract-config@example.test>")
+        with self.assertRaises(UserError):
+            record.action_extract_invoice_data()
+
+    def test_action_create_vendor_bill_uses_extracted_lines(self):
+        partner = self.env["res.partner"].create({"name": "Lines Supplier SA"})
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Lines invoice",
+                "source_message_id": "<bill-lines@example.test>",
+                "partner_id": partner.id,
+                "amount_untaxed": 150.0,
+                "extracted_line_ids": [
+                    (0, 0, {"description": "Widget", "quantity": 2.0, "unit_price": 50.0, "amount": 100.0}),
+                    (0, 0, {"description": "Service", "quantity": 1.0, "amount": 50.0}),
+                ],
+            }
+        )
+
+        record.action_create_vendor_bill()
+
+        lines = record.invoice_id.invoice_line_ids
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(sorted(lines.mapped("name")), ["Service", "Widget"])
+        self.assertEqual(record.invoice_id.amount_untaxed, 150.0)

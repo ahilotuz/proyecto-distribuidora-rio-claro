@@ -9,6 +9,7 @@
     "data": [
         "security/ir.access.csv",
         "data/mail_alias.xml",
+        "data/ir_cron_telegram.xml",
         "views/invoice_intake_views.xml",
     ],
     "installable": True,

@@ -128,8 +128,12 @@ The add-on includes a first safe assistant layer
 (`rioclaro.assisted.query.ai`) that:
 
 - asks Azure OpenAI to choose exactly one fixed read-only tool
-  (`stock_by_product`, `recent_purchases`, `recent_sales`,
-  `recent_invoices`, `order_status`);
+  (`stock_by_product`, `search_products`, `get_product_stock`,
+  `recent_purchases`, `recent_sales`, `recent_invoices`, `order_status`).
+  `search_products` returns up to 5 candidates (exact SKU first, then all
+  words in name/SKU) without quantities; `get_product_stock` takes a product
+  ID (optionally `id,warehouse_id`) and returns labelled on-hand, free and
+  forecast quantities, re-checked against the contact's company;
 - executes that tool through Odoo ACL and partner/company scoping; and
 - asks Azure OpenAI to phrase the final answer using only the authorized rows.
 

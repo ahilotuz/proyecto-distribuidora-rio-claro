@@ -199,6 +199,8 @@ class AzureOpenAIClient:
     def _tool_description(tool_name: str) -> str:
         descriptions = {
             "stock_by_product": "Consulta inventario por producto (existencia y disponible).",
+            "search_products": "Busca productos candidatos por nombre o SKU (sin cantidades).",
+            "get_product_stock": "Existencias de un producto por ID numérico obtenido con search_products, opcional ',almacen_id'.",
             "recent_purchases": "Devuelve compras recientes autorizadas para el remitente.",
             "recent_sales": "Devuelve ventas recientes autorizadas para el remitente.",
             "recent_invoices": "Devuelve facturas publicadas autorizadas para el remitente.",

@@ -13,10 +13,17 @@ from odoo import api, models
 
 MAX_RESULTS = 5
 MAX_TEXT_LENGTH = 80
+MAX_CANDIDATES = 5
+MIN_TOKEN_LENGTH = 3
+_STOPWORDS = frozenset(
+    {"para", "con", "sin", "del", "los", "las", "una", "uno", "por", "que", "de", "el", "la"}
+)
 
 # tool name -> (required permission, method name)
 TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "stock_by_product": ("can_query_inventory", "_tool_stock_by_product"),
+    "search_products": ("can_query_inventory", "_tool_search_products"),
+    "get_product_stock": ("can_query_inventory", "_tool_get_product_stock"),
     "recent_purchases": ("can_query_purchases", "_tool_recent_purchases"),
     "recent_sales": ("can_query_sales", "_tool_recent_sales"),
     "recent_invoices": ("can_query_billing", "_tool_recent_invoices"),
@@ -91,6 +98,8 @@ class QueryService(models.AbstractModel):
                 [
                     "&",
                     ("is_storable", "=", True),
+                    "&",
+                    *self._company_scope(contact),
                     "|",
                     ("name", "ilike", text),
                     ("default_code", "ilike", text),
@@ -106,6 +115,109 @@ class QueryService(models.AbstractModel):
                 "uom": product.uom_id.name,
             }
             for product in products
+        ]
+
+    @staticmethod
+    def _search_tokens(text: str) -> list[str]:
+        """Split a phrase into significant lowercase words for AND matching."""
+        return [
+            token
+            for token in text.lower().split()
+            if len(token) >= MIN_TOKEN_LENGTH and token not in _STOPWORDS
+        ]
+
+    @api.model
+    def _tool_search_products(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Return up to ``MAX_CANDIDATES`` product candidates, no quantities.
+
+        An exact SKU match wins alone; otherwise every significant word must
+        appear in the name or SKU. More than one row means the caller must ask
+        the user to disambiguate.
+        """
+        if not text:
+            return []
+        products = self.env["product.product"].sudo().with_company(contact.company_id)
+        base: list = [("is_storable", "=", True)] + self._company_scope(contact)
+        exact = products.search(
+            base + [("default_code", "=ilike", text)], limit=MAX_CANDIDATES
+        )
+        match = "exact_sku"
+        if not exact:
+            tokens = self._search_tokens(text)
+            if not tokens:
+                return []
+            domain = list(base)
+            for token in tokens:
+                domain += ["|", ("name", "ilike", token), ("default_code", "ilike", token)]
+            exact = products.search(domain, order="name, id", limit=MAX_CANDIDATES)
+            match = "name"
+        return [
+            {
+                "product_id": product.id,
+                "name": product.display_name,
+                "sku": product.default_code or "",
+                "category": product.categ_id.display_name or "",
+                "match": match,
+            }
+            for product in exact
+        ]
+
+    @api.model
+    def _tool_get_product_stock(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Return live labelled stock for one product ID from ``search_products``.
+
+        ``text`` is ``"<product_id>"`` or ``"<product_id>,<warehouse_id>"``.
+        The product and warehouse are re-fetched and checked against the
+        contact's company; anything else yields no rows.
+        """
+        parts = [part.strip() for part in text.split(",")]
+        if not 1 <= len(parts) <= 2 or not all(
+            part.isascii() and part.isdigit() for part in parts
+        ):
+            return []
+        product_id = int(parts[0])
+        warehouse_id = int(parts[1]) if len(parts) == 2 else 0
+        company = contact.company_id
+        product = (
+            self.env["product.product"]
+            .sudo()
+            .with_company(company)
+            .search(
+                [("id", "=", product_id), ("is_storable", "=", True)]
+                + self._company_scope(contact),
+                limit=1,
+            )
+        )
+        if not product:
+            return []
+        warehouse_name = ""
+        if warehouse_id:
+            warehouse = (
+                self.env["stock.warehouse"]
+                .sudo()
+                .search(
+                    [("id", "=", warehouse_id), ("company_id", "=", company.id)],
+                    limit=1,
+                )
+            )
+            if not warehouse:
+                return []
+            product = product.with_context(warehouse_id=warehouse.id)
+            warehouse_name = warehouse.name
+        return [
+            {
+                "product_id": product.id,
+                "product": product.display_name,
+                "warehouse": warehouse_name or "all",
+                "on_hand": product.qty_available,
+                "free": product.free_qty,
+                "forecast": product.virtual_available,
+                "uom": product.uom_id.name,
+            }
         ]
 
     @api.model

@@ -108,6 +108,94 @@ class TestQueryService(TransactionCase):
     def test_stock_without_text_returns_nothing(self):
         self.assertEqual(self.service.run_tool(1, "stock_by_product")["rows"], [])
 
+    def _second_company_product(self):
+        other = self.env["res.company"].create({"name": "Other Co"})
+        return other, self.env["product.product"].create(
+            {
+                "name": "Producto Otra Empresa",
+                "is_storable": True,
+                "type": "consu",
+                "company_id": other.id,
+            }
+        )
+
+    def test_search_products_by_name_returns_ids_without_quantities(self):
+        rows = self.service.run_tool(1, "search_products", "agua 20L")["rows"]
+        self.assertEqual([r["product_id"] for r in rows], [self.product.id])
+        self.assertEqual(rows[0]["match"], "name")
+        self.assertNotIn("on_hand", rows[0])
+
+    def test_search_products_exact_sku_wins(self):
+        self.product.default_code = "AGUA-20"
+        other = self.env["product.product"].create(
+            {"name": "Agua AGUA-20 extra", "is_storable": True, "type": "consu"}
+        )
+        rows = self.service.run_tool(1, "search_products", "agua-20")["rows"]
+        self.assertEqual([r["product_id"] for r in rows], [self.product.id])
+        self.assertEqual(rows[0]["match"], "exact_sku")
+        self.assertNotIn(other.id, [r["product_id"] for r in rows])
+
+    def test_search_products_ambiguous_returns_several_capped(self):
+        for i in range(7):
+            self.env["product.product"].create(
+                {"name": f"Silla modelo {i}", "is_storable": True, "type": "consu"}
+            )
+        rows = self.service.run_tool(1, "search_products", "silla")["rows"]
+        self.assertEqual(len(rows), 5)
+
+    def test_search_products_no_match_and_only_stopwords(self):
+        self.assertEqual(self.service.run_tool(1, "search_products", "xyzzy")["rows"], [])
+        self.assertEqual(self.service.run_tool(1, "search_products", "para de")["rows"], [])
+        self.assertEqual(self.service.run_tool(1, "search_products")["rows"], [])
+
+    def test_search_products_denied_for_customer(self):
+        self.assertEqual(
+            self.service.run_tool(3, "search_products", "agua")["error"], "denied"
+        )
+
+    def test_search_products_excludes_other_company(self):
+        other, product = self._second_company_product()
+        rows = self.service.run_tool(1, "search_products", "otra empresa")["rows"]
+        self.assertNotIn(product.id, [r["product_id"] for r in rows])
+
+    def test_get_product_stock_labelled_values(self):
+        rows = self.service.run_tool(1, "get_product_stock", str(self.product.id))["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["on_hand"], 12)
+        self.assertEqual(rows[0]["free"], 12)
+        self.assertIn("forecast", rows[0])
+        self.assertEqual(rows[0]["warehouse"], "all")
+        self.assertTrue(rows[0]["uom"])
+
+    def test_get_product_stock_with_warehouse(self):
+        warehouse = self.env["stock.warehouse"].search([], limit=1)
+        text = f"{self.product.id},{warehouse.id}"
+        rows = self.service.run_tool(1, "get_product_stock", text)["rows"]
+        self.assertEqual(rows[0]["warehouse"], warehouse.name)
+        self.assertEqual(rows[0]["on_hand"], 12)
+
+    def test_get_product_stock_rejects_bad_input(self):
+        for text in ("", "abc", "1;2", "1,2,3", "-5", "1,", "١٢"):
+            self.assertEqual(
+                self.service.run_tool(1, "get_product_stock", text)["rows"], [], text
+            )
+
+    def test_get_product_stock_rejects_foreign_warehouse_and_product(self):
+        other, product = self._second_company_product()
+        foreign_wh = self.env["stock.warehouse"].search(
+            [("company_id", "=", other.id)], limit=1
+        )
+        text = f"{self.product.id},{foreign_wh.id}"
+        self.assertEqual(self.service.run_tool(1, "get_product_stock", text)["rows"], [])
+        self.assertEqual(
+            self.service.run_tool(1, "get_product_stock", str(product.id))["rows"], []
+        )
+
+    def test_get_product_stock_denied_for_supplier(self):
+        self.assertEqual(
+            self.service.run_tool(2, "get_product_stock", "1")["error"], "denied"
+        )
+
     def test_supplier_sees_only_own_purchases(self):
         result = self.service.run_tool(2, "recent_purchases")
         self.assertEqual(self._references(result), {self.po_a.name})

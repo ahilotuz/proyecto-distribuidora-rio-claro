@@ -1,4 +1,4 @@
-"""Minimal Telegram Bot API client for receiving supplier invoice files."""
+"""Minimal Telegram Bot API client for invoice files and private text messages."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 
 _API_BASE = "https://api.telegram.org"
@@ -26,11 +27,12 @@ class TelegramFile:
     file_id: str
     file_name: str
     mimetype: str
+    duration_seconds: int | None = None
 
 
 @dataclass(frozen=True)
 class TelegramMessage:
-    """A Telegram message that carries a supported invoice file."""
+    """A private Telegram message carrying a supported file or plain text."""
 
     update_id: int
     message_id: int
@@ -38,7 +40,9 @@ class TelegramMessage:
     sender_id: int
     sender_name: str
     caption: str
-    file: TelegramFile
+    file: TelegramFile | None = None
+    voice: TelegramFile | None = None
+    text: str = ""
 
 
 class TelegramClient:
@@ -52,14 +56,15 @@ class TelegramClient:
         self._token = bot_token.strip()
         self._request_timeout = request_timeout
 
-    def get_updates(self, offset: int | None = None) -> tuple[int | None, list[TelegramMessage]]:
+    def get_updates(
+        self, offset: int | None = None
+    ) -> tuple[int | None, list[TelegramMessage]]:
         """Fetch pending updates.
 
         Returns:
             The offset to use on the next call (``None`` when there were no
-            updates) and the messages that carry a PDF, JPEG, or PNG file.
-            Updates without a supported file are skipped but still advance the
-            offset so Telegram does not resend them.
+            updates) and the private messages carrying supported invoice files
+            or plain text. Other updates are skipped but still advance offset.
         """
         params: dict[str, Any] = {"timeout": 0, "allowed_updates": json.dumps(["message"])}
         if offset is not None:
@@ -100,12 +105,53 @@ class TelegramClient:
         """Send a plain text reply to a chat."""
         self._call("sendMessage", {"chat_id": chat_id, "text": text})
 
+    def send_voice(self, chat_id: int, audio: bytes, filename: str = "reply.mp3") -> None:
+        """Upload an MP3 voice reply to a Telegram private chat."""
+        if not audio:
+            raise ValueError("Voice reply must not be empty.")
+        boundary = f"----rioclaro-{uuid4().hex}"
+        fields = {
+            "chat_id": str(chat_id),
+            "voice": (filename, "audio/mpeg", audio),
+        }
+        chunks: list[bytes] = []
+        for name, value in fields.items():
+            chunks.extend(
+                [
+                    f"--{boundary}\r\n".encode(),
+                    f'Content-Disposition: form-data; name="{name}"'.encode(),
+                ]
+            )
+            if isinstance(value, tuple):
+                file_name, mimetype, content = value
+                chunks.extend(
+                    [
+                        f'; filename="{file_name}"\r\n'.encode(),
+                        f"Content-Type: {mimetype}\r\n\r\n".encode(),
+                        content,
+                        b"\r\n",
+                    ]
+                )
+            else:
+                chunks.extend([b"\r\n\r\n", value.encode(), b"\r\n"])
+        chunks.append(f"--{boundary}--\r\n".encode())
+        request = Request(
+            f"{_API_BASE}/bot{self._token}/sendVoice",
+            data=b"".join(chunks),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        self._call_request(request, "sendVoice")
+
     def _call(self, method: str, params: dict[str, Any]) -> Any:
         request = Request(
             f"{_API_BASE}/bot{self._token}/{method}",
             data=urlencode(params).encode(),
             method="POST",
         )
+        return self._call_request(request, method)
+
+    def _call_request(self, request: Request, method: str) -> Any:
         try:
             with urlopen(request, timeout=self._request_timeout) as response:
                 payload = json.loads(response.read())
@@ -132,6 +178,19 @@ class TelegramClient:
         telegram_file: TelegramFile | None = None
         document = message.get("document")
         photos = message.get("photo")
+        voice_message = message.get("voice")
+        voice_file: TelegramFile | None = None
+        if isinstance(voice_message, dict) and voice_message.get("file_id"):
+            voice_file = TelegramFile(
+                file_id=str(voice_message["file_id"]),
+                file_name=f"voice-{message.get('message_id')}.ogg",
+                mimetype=str(voice_message.get("mime_type") or "audio/ogg"),
+                duration_seconds=(
+                    voice_message.get("duration")
+                    if isinstance(voice_message.get("duration"), int)
+                    else None
+                ),
+            )
         if isinstance(document, dict) and document.get("mime_type") in _SUPPORTED_MIMETYPES:
             telegram_file = TelegramFile(
                 file_id=str(document.get("file_id", "")),
@@ -146,7 +205,16 @@ class TelegramClient:
                 file_name=f"photo-{message.get('message_id')}.jpg",
                 mimetype="image/jpeg",
             )
-        if not telegram_file or not telegram_file.file_id:
+        if chat.get("type") != "private":
+            return None
+        if telegram_file and not telegram_file.file_id:
+            return None
+        text = message.get("text")
+        if (
+            not telegram_file
+            and not voice_file
+            and (not isinstance(text, str) or not text.strip())
+        ):
             return None
         return TelegramMessage(
             update_id=update["update_id"],
@@ -156,4 +224,6 @@ class TelegramClient:
             sender_name=str(sender.get("username") or sender.get("first_name") or sender["id"]),
             caption=str(message.get("caption") or ""),
             file=telegram_file,
+            voice=voice_file,
+            text=text.strip() if isinstance(text, str) else "",
         )

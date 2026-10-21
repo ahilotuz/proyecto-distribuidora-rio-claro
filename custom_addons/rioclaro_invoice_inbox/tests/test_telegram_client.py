@@ -28,7 +28,7 @@ def _json_response(result: object, ok: bool = True) -> Mock:
 def _update(update_id: int, **message_fields: object) -> dict:
     message = {
         "message_id": update_id * 10,
-        "chat": {"id": 555},
+        "chat": {"id": 555, "type": "private"},
         "from": {"id": 777, "username": "proveedor"},
     }
     message.update(message_fields)
@@ -61,19 +61,37 @@ class TestTelegramClient(TransactionCase):
                 _update(11, photo=[{"file_id": "small"}, {"file_id": "large"}]),
                 _update(12, text="hola"),
                 _update(13, document={"file_id": "x", "mime_type": "text/plain"}),
+                _update(
+                    14,
+                    chat={"id": -100, "type": "group"},
+                    text="consulta desde grupo",
+                ),
+                _update(
+                    15,
+                    voice={
+                        "file_id": "voice-1",
+                        "mime_type": "audio/ogg",
+                        "duration": 8,
+                    },
+                ),
             ]
         )
 
         next_offset, messages = self.client.get_updates(offset=10)
 
-        self.assertEqual(next_offset, 14)
-        self.assertEqual([m.update_id for m in messages], [10, 11])
+        self.assertEqual(next_offset, 16)
+        self.assertEqual([m.update_id for m in messages], [10, 11, 12, 15])
         self.assertEqual(messages[0].file.file_name, "factura.pdf")
         self.assertEqual(messages[0].caption, "Factura de octubre")
         self.assertEqual(messages[0].chat_id, 555)
         self.assertEqual(messages[0].sender_id, 777)
         self.assertEqual(messages[1].file.file_id, "large")
         self.assertEqual(messages[1].file.mimetype, "image/jpeg")
+        self.assertEqual(messages[2].text, "hola")
+        self.assertFalse(messages[2].file)
+        self.assertEqual(messages[3].voice.file_id, "voice-1")
+        self.assertEqual(messages[3].voice.mimetype, "audio/ogg")
+        self.assertEqual(messages[3].voice.duration_seconds, 8)
 
     @patch(_URLOPEN)
     def test_get_updates_without_updates_keeps_offset_empty(self, urlopen_mock):
@@ -120,3 +138,16 @@ class TestTelegramClient(TransactionCase):
         request = urlopen_mock.call_args.args[0]
         self.assertTrue(request.full_url.endswith("/sendMessage"))
         self.assertIn(b"chat_id=555", request.data)
+
+    @patch(_URLOPEN)
+    def test_send_voice_uploads_mp3_as_multipart(self, urlopen_mock):
+        urlopen_mock.return_value = _json_response({"message_id": 1})
+
+        self.client.send_voice(555, b"fake-mp3", "reply.mp3")
+
+        request = urlopen_mock.call_args.args[0]
+        self.assertTrue(request.full_url.endswith("/sendVoice"))
+        self.assertIn("multipart/form-data", request.get_header("Content-type"))
+        self.assertIn(b"chat_id", request.data)
+        self.assertIn(b"reply.mp3", request.data)
+        self.assertIn(b"fake-mp3", request.data)

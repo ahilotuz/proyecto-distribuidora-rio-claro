@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import timedelta
 from hashlib import sha256
 
 from odoo import _, api, fields, models
@@ -10,16 +11,20 @@ from .document_intelligence import (
     AzureDocumentIntelligenceClient,
     DocumentIntelligenceError,
 )
+from .query_service import TOOL_REGISTRY
+from .speech_client import AzureSpeechClient, SpeechError
 from .telegram_client import TelegramClient, TelegramError, TelegramMessage
 
 _logger = logging.getLogger(__name__)
 
 
 _INTAKE_COMPANY_PARAM = "rioclaro_invoice_inbox.company_id"
-_TELEGRAM_ALLOWED_PARAM = "rioclaro_invoice_inbox.telegram_allowed_user_ids"
 _TELEGRAM_OFFSET_PARAM = "rioclaro_invoice_inbox.telegram_update_offset"
 _TELEGRAM_POLLING_PARAM = "rioclaro_invoice_inbox.telegram_polling_enabled"
 _EXTRACTABLE_MIMETYPES = {"application/pdf", "image/jpeg", "image/png"}
+_TELEGRAM_QUERY_RATE_LIMIT = 5
+_TELEGRAM_QUERY_WINDOW_MINUTES = 5
+_TELEGRAM_MAX_REPLY_LENGTH = 4000
 
 
 class SupplierInvoiceIntake(models.Model):
@@ -233,17 +238,15 @@ class SupplierInvoiceIntake(models.Model):
 
     @api.model
     def _is_telegram_sender_allowed(self, sender_id: int) -> bool:
-        """Return whether a Telegram user ID is in the configured allowlist.
+        """Return whether a Telegram user may submit vendor invoices.
 
-        The allowlist is the comma-separated system parameter
-        ``rioclaro_invoice_inbox.telegram_allowed_user_ids``. An empty or
-        missing parameter allows nobody.
+        Delegates to the Telegram contact ACL: the sender needs an active
+        contact holding the ``can_submit_vendor_invoice`` permission. Unknown
+        senders are denied.
         """
-        raw_ids = self.env["ir.config_parameter"].sudo().get_str(
-            _TELEGRAM_ALLOWED_PARAM, ""
+        return self.env["rioclaro.telegram.contact"].is_allowed(
+            sender_id, "can_submit_vendor_invoice"
         )
-        allowed_ids = {item.strip() for item in raw_ids.split(",") if item.strip()}
-        return str(sender_id) in allowed_ids
 
     @api.model
     def create_from_telegram(
@@ -308,7 +311,7 @@ class SupplierInvoiceIntake(models.Model):
 
     @api.model
     def cron_poll_telegram(self) -> int:
-        """Poll the Telegram bot and create intake records for new invoice files.
+        """Poll Telegram for invoice files and private text queries.
 
         Called by the scheduled action. Polling runs only in databases where
         ``rioclaro_invoice_inbox.telegram_polling_enabled`` is true, so test or
@@ -340,6 +343,30 @@ class SupplierInvoiceIntake(models.Model):
         created = 0
         for message in messages:
             try:
+                if message.text and not message.file:
+                    self._process_telegram_text_query(client, message)
+                    continue
+                if message.voice:
+                    if (
+                        message.voice.duration_seconds is not None
+                        and message.voice.duration_seconds > 60
+                    ):
+                        self._process_telegram_text_query(
+                            client,
+                            message,
+                            voice_duration_seconds=message.voice.duration_seconds,
+                        )
+                        continue
+                    voice_audio = client.download_file(message.voice.file_id)
+                    self._process_telegram_text_query(
+                        client,
+                        message,
+                        voice_audio=voice_audio,
+                        voice_duration_seconds=message.voice.duration_seconds,
+                    )
+                    continue
+                if not message.file:
+                    continue
                 if not self._is_telegram_sender_allowed(message.sender_id):
                     client.send_message(message.chat_id, "No autorizado.")
                     continue
@@ -363,6 +390,167 @@ class SupplierInvoiceIntake(models.Model):
         if next_offset is not None:
             params.set_int(_TELEGRAM_OFFSET_PARAM, next_offset)
         return created
+
+    @api.model
+    def _process_telegram_text_query(
+        self,
+        client: TelegramClient,
+        message: TelegramMessage,
+        *,
+        voice_audio: bytes | None = None,
+        voice_duration_seconds: int | None = None,
+    ) -> None:
+        """Authorize, rate-limit, audit, and answer one text or voice query."""
+        input_type = (
+            "voice"
+            if voice_audio is not None or voice_duration_seconds is not None
+            else "text"
+        )
+        audit_model = self.env["rioclaro.assisted.query.audit"].sudo()
+        source_id = f"telegram:{message.chat_id}:{message.message_id}"
+        if audit_model.search_count([("source_message_id", "=", source_id)]):
+            return
+
+        contacts = self.env["rioclaro.telegram.contact"]
+        contact = contacts.get_active_contact(message.sender_id)
+        query_permissions = [permission for permission, _ in TOOL_REGISTRY.values()]
+        if not contact or not any(contact[permission] for permission in query_permissions):
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="denied",
+                contact=contact,
+                input_type=input_type,
+            )
+            self._send_telegram_query_reply(
+                client,
+                message.chat_id,
+                "No autorizado para consultas.",
+                message.message_id,
+            )
+            return
+
+        window_start = fields.Datetime.now() - timedelta(
+            minutes=_TELEGRAM_QUERY_WINDOW_MINUTES
+        )
+        recent_count = audit_model.search_count(
+            [
+                ("contact_id", "=", contact.id),
+                ("request_at", ">=", window_start),
+            ]
+        )
+        if recent_count >= _TELEGRAM_QUERY_RATE_LIMIT:
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="rate_limited",
+                contact=contact,
+                input_type=input_type,
+            )
+            self._send_telegram_query_reply(
+                client,
+                message.chat_id,
+                "Límite alcanzado: intenta de nuevo en unos minutos.",
+                message.message_id,
+            )
+            return
+
+        if voice_duration_seconds is not None and voice_duration_seconds > 60:
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="invalid",
+                contact=contact,
+                input_type=input_type,
+            )
+            self._send_telegram_query_reply(
+                client,
+                message.chat_id,
+                "La nota de voz supera el límite de 60 segundos. Envía una más corta.",
+                message.message_id,
+            )
+            return
+
+        question = message.text
+        if voice_audio is not None:
+            endpoint = os.environ.get("RIOCLARO_SPEECH_ENDPOINT", "")
+            region = os.environ.get("RIOCLARO_SPEECH_REGION", "")
+            api_key = os.environ.get("RIOCLARO_SPEECH_KEY", "")
+            try:
+                speech_client = AzureSpeechClient(
+                    endpoint=endpoint,
+                    region=region,
+                    api_key=api_key,
+                )
+                question = speech_client.transcribe(voice_audio, language="es-MX")
+            except (ValueError, SpeechError):
+                audit_model.log_request(
+                    telegram_user_id=message.sender_id,
+                    source_message_id=source_id,
+                    outcome="error",
+                    contact=contact,
+                    input_type=input_type,
+                )
+                self._send_telegram_query_reply(
+                    client,
+                    message.chat_id,
+                    "No pude transcribir la nota de voz. Intenta enviarla de nuevo o escribe tu pregunta.",
+                    message.message_id,
+                )
+                return
+
+        result = self.env["rioclaro.assisted.query.ai"].answer(
+            message.sender_id, question
+        )
+        outcome = {
+            "denied": "denied",
+            "invalid_question": "invalid",
+            "ai_not_configured": "error",
+            "ai_unavailable": "error",
+        }.get(result.get("error"), "allowed" if result.get("ok") else "error")
+        tool = result.get("tool")
+        audit_model.log_request(
+            telegram_user_id=message.sender_id,
+            source_message_id=source_id,
+            outcome=outcome,
+            contact=contact,
+            tool=tool,
+            input_type=input_type,
+        )
+        if result.get("ok"):
+            reply = str(result.get("answer", ""))[:_TELEGRAM_MAX_REPLY_LENGTH]
+            if voice_audio is not None:
+                try:
+                    spoken_reply = speech_client.synthesize(reply, language="es-MX")
+                    client.send_voice(message.chat_id, spoken_reply)
+                    return
+                except (ValueError, SpeechError, TelegramError):
+                    _logger.warning(
+                        "Voice response for Telegram query %s could not be delivered.",
+                        message.message_id,
+                    )
+        elif outcome == "denied":
+            reply = "No tienes permiso para consultar esos datos."
+        elif outcome == "invalid":
+            reply = "La pregunta está vacía o es demasiado larga."
+        else:
+            reply = "El asistente no está disponible en este momento."
+        self._send_telegram_query_reply(
+            client, message.chat_id, reply, message.message_id
+        )
+
+    @api.model
+    def _send_telegram_query_reply(
+        self, client: TelegramClient, chat_id: int, reply: str, message_id: int
+    ) -> None:
+        """Send a query response and log delivery failures without rerunning AI."""
+        try:
+            client.send_message(chat_id, reply)
+        except TelegramError:
+            _logger.warning(
+                "Telegram response for text query %s could not be delivered.",
+                message_id,
+            )
 
     def action_mark_in_review(self) -> bool:
         """Move intake record status from 'received' to 'in_review'."""

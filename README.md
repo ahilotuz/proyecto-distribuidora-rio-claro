@@ -152,6 +152,10 @@ the answer as text instead. Voice requests use the same 5-per-contact,
 per-5-minute limit and are marked as voice input in the audit view; audio and
 transcribed text are not stored by the audit model.
 
+See [TELEGRAM_ODOO_AZURE_AI_ARCHITECTURE.md](./TELEGRAM_ODOO_AZURE_AI_ARCHITECTURE.md)
+for the target architecture, product matching strategy, security design,
+sample webhook/tool/API contracts, and phased implementation roadmap.
+
 ## Azure email screening foundation
 
 The Azure Function in `azure/email-screening/` classifies incoming message

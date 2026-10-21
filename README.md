@@ -134,6 +134,10 @@ The add-on includes a first safe assistant layer
   words in name/SKU) without quantities; `get_product_stock` takes a product
   ID (optionally `id,warehouse_id`) and returns labelled on-hand, free and
   forecast quantities, re-checked against the contact's company;
+  `aggregate_sales`, `aggregate_purchases` and `aggregate_invoices` return
+  Odoo-computed totals per currency for a bounded period (empty = last 30
+  days, `<days>` up to 366, or `YYYY-MM-DD,YYYY-MM-DD`), counting only
+  confirmed orders and posted invoices, with credit notes subtracted;
 - executes that tool through Odoo ACL and partner/company scoping; and
 - asks Azure OpenAI to phrase the final answer using only the authorized rows.
 

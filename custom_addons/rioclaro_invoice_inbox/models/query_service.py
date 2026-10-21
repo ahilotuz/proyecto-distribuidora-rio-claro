@@ -11,6 +11,8 @@ from typing import Any
 
 from odoo import api, models
 
+from .date_range import DateRange, parse_date_range
+
 MAX_RESULTS = 5
 MAX_TEXT_LENGTH = 80
 MAX_CANDIDATES = 5
@@ -27,6 +29,9 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "recent_purchases": ("can_query_purchases", "_tool_recent_purchases"),
     "recent_sales": ("can_query_sales", "_tool_recent_sales"),
     "recent_invoices": ("can_query_billing", "_tool_recent_invoices"),
+    "aggregate_sales": ("can_query_sales", "_tool_aggregate_sales"),
+    "aggregate_purchases": ("can_query_purchases", "_tool_aggregate_purchases"),
+    "aggregate_invoices": ("can_query_billing", "_tool_aggregate_invoices"),
     "order_status": ("can_check_order_status", "_tool_order_status"),
 }
 
@@ -51,6 +56,8 @@ class QueryService(models.AbstractModel):
         Returns:
             ``{"ok": True, "tool": ..., "rows": [...]}`` or
             ``{"ok": False, "error": "denied" | "unknown_tool" | "invalid_input"}``.
+            Aggregation tools take ``""`` (last 30 days), ``"<days>"`` (1-366)
+            or ``"YYYY-MM-DD,YYYY-MM-DD"`` as ``text``.
         """
         entry = TOOL_REGISTRY.get(tool)
         if entry is None:
@@ -64,7 +71,11 @@ class QueryService(models.AbstractModel):
         if len(clean_text) > MAX_TEXT_LENGTH:
             return {"ok": False, "error": "invalid_input"}
         method: Callable[..., list[dict[str, Any]]] = getattr(self, method_name)
-        return {"ok": True, "tool": tool, "rows": method(contact, clean_text)}
+        try:
+            rows = method(contact, clean_text)
+        except ValueError:
+            return {"ok": False, "error": "invalid_input"}
+        return {"ok": True, "tool": tool, "rows": rows}
 
     @api.model
     def _partner_scope(self, contact: models.Model) -> list[tuple]:
@@ -219,6 +230,116 @@ class QueryService(models.AbstractModel):
                 "uom": product.uom_id.name,
             }
         ]
+
+    @api.model
+    def _aggregate_orders(
+        self,
+        contact: models.Model,
+        model: str,
+        states: list[str],
+        period: DateRange,
+    ) -> list[dict[str, Any]]:
+        """Sum confirmed orders per currency; Odoo, not the model, does the math."""
+        domain = (
+            self._partner_scope(contact)
+            + self._company_scope(contact)
+            + [
+                ("state", "in", states),
+                ("date_order", ">=", period.start_utc),
+                ("date_order", "<", period.end_utc_exclusive),
+            ]
+        )
+        groups = self.env[model].sudo()._read_group(
+            domain,
+            ["currency_id"],
+            ["amount_untaxed:sum", "amount_total:sum", "__count"],
+        )
+        return [
+            {
+                "currency": currency.name,
+                "count": count,
+                "untaxed": currency.round(untaxed),
+                "total": currency.round(total),
+                "from": str(period.start),
+                "to": str(period.end),
+            }
+            for currency, untaxed, total, count in groups
+        ]
+
+    @api.model
+    def _tool_aggregate_sales(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        return self._aggregate_orders(
+            contact, "sale.order", ["sale", "done"], parse_date_range(text)
+        )
+
+    @api.model
+    def _tool_aggregate_purchases(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        return self._aggregate_orders(
+            contact, "purchase.order", ["purchase", "done"], parse_date_range(text)
+        )
+
+    @api.model
+    def _tool_aggregate_invoices(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Posted invoices per kind and currency; credit notes are subtracted."""
+        period = parse_date_range(text)
+        kinds = {
+            "customer": ("out_invoice", "out_refund"),
+            "vendor": ("in_invoice", "in_refund"),
+        }
+        allowed = {
+            "internal": ["customer", "vendor"],
+            "supplier": ["vendor"],
+            "customer": ["customer"],
+        }[contact.role]
+        move_types = [move_type for kind in allowed for move_type in kinds[kind]]
+        domain = (
+            self._partner_scope(contact)
+            + self._company_scope(contact)
+            + [
+                ("state", "=", "posted"),
+                ("move_type", "in", move_types),
+                ("invoice_date", ">=", period.start),
+                ("invoice_date", "<=", period.end),
+            ]
+        )
+        groups = self.env["account.move"].sudo()._read_group(
+            domain,
+            ["move_type", "currency_id"],
+            ["amount_untaxed:sum", "amount_total:sum", "__count"],
+        )
+        totals: dict[tuple[str, str], dict[str, Any]] = {}
+        for move_type, currency, untaxed, total, count in groups:
+            kind = "customer" if move_type.startswith("out_") else "vendor"
+            sign = -1 if move_type.endswith("_refund") else 1
+            row = totals.setdefault(
+                (kind, currency.name),
+                {
+                    "kind": kind,
+                    "currency": currency.name,
+                    "documents": 0,
+                    "untaxed": 0.0,
+                    "total": 0.0,
+                    "from": str(period.start),
+                    "to": str(period.end),
+                    "_currency": currency,
+                },
+            )
+            row["documents"] += count
+            row["untaxed"] += sign * untaxed
+            row["total"] += sign * total
+        rows = []
+        for _, row in sorted(totals.items()):
+            currency = row.pop("_currency")
+            row["untaxed"] = currency.round(row["untaxed"])
+            row["total"] = currency.round(row["total"])
+            rows.append(row)
+        return rows
 
     @api.model
     def _tool_recent_purchases(

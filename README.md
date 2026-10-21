@@ -97,18 +97,60 @@ duplicates. Use **Extract Invoice Data** on the record as with email.
 
 1. Create a bot with @BotFather and set `RIOCLARO_TELEGRAM_BOT_TOKEN` in the
    ignored `.env` file (see `.env.example`). Never commit the token.
-2. In **Settings → Technical → System Parameters**, set
-   `rioclaro_invoice_inbox.telegram_allowed_user_ids` to the comma-separated
-   Telegram user IDs that may send files (an ID is shown by @userinfobot).
-   Other senders get "No autorizado." and nothing is stored. An empty value
-   allows nobody.
+2. As an administrator, open **Invoice Intake → Telegram Contacts** and create
+   one contact per authorized sender: the numeric Telegram user ID (shown by
+   @userinfobot), a role (supplier, internal user, or customer), and a partner
+   for suppliers and customers. The role preloads default permissions, which
+   you can grant or revoke one by one (inventory, purchases, sales, billing,
+   order status, quotation, submit vendor invoice, issue customer invoice).
+   Deactivate a contact to revoke all access. Access is denied by default:
+   unknown senders and senders without the **Submit vendor invoice**
+   permission get "No autorizado." and nothing is stored.
 3. Set `rioclaro_invoice_inbox.telegram_polling_enabled` to `True` in the one
    database that should poll the bot. Polling is off by default because a bot
    token must be polled by a single database only; otherwise databases
    compete for the same messages.
+4. Authorized users can send natural-language questions in a private chat.
+   Every private text message is treated as a read-only query. The assistant
+   uses the contact's query permissions and partner/company scope, and each
+   contact is limited to 5 requests per rolling 5-minute window. Group-chat
+   messages are ignored.
+5. Administrators can inspect **Invoice Intake → Assisted Query Audit**.
+   The audit records Telegram user ID, selected tool, outcome, and message ID;
+   it deliberately does not store the question or answer.
 
-This MVP uses polling and a sender allowlist only. A webhook with signature
+This MVP uses polling and the contact ACL only. A webhook with signature
 verification and WhatsApp are later increments.
+
+### Assisted text queries (Azure OpenAI tool-picker foundation)
+
+The add-on includes a first safe assistant layer
+(`rioclaro.assisted.query.ai`) that:
+
+- asks Azure OpenAI to choose exactly one fixed read-only tool
+  (`stock_by_product`, `recent_purchases`, `recent_sales`,
+  `recent_invoices`, `order_status`);
+- executes that tool through Odoo ACL and partner/company scoping; and
+- asks Azure OpenAI to phrase the final answer using only the authorized rows.
+
+Set these environment variables in the ignored `.env` file:
+
+- `RIOCLARO_AOAI_ENDPOINT`
+- `RIOCLARO_AOAI_API_KEY`
+- `RIOCLARO_AOAI_DEPLOYMENT`
+- `RIOCLARO_SPEECH_ENDPOINT`
+- `RIOCLARO_SPEECH_REGION`
+- `RIOCLARO_SPEECH_KEY`
+
+Telegram text handling, audit logging, and rate limiting are implemented.
+Authorized users may also send a private Telegram voice note (OGG/Opus).
+Voice notes are limited to 60 seconds. Azure AI Speech transcribes them in
+Spanish (Mexico), and the same permission-scoped
+read-only query flow handles the transcription, and the answer is sent as an
+MP3 voice message. If speech synthesis or audio delivery fails, the bot sends
+the answer as text instead. Voice requests use the same 5-per-contact,
+per-5-minute limit and are marked as voice input in the audit view; audio and
+transcribed text are not stored by the audit model.
 
 ## Azure email screening foundation
 

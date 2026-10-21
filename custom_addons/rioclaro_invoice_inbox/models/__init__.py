@@ -2,4 +2,9 @@ from . import mail_thread
 from . import invoice_intake
 from . import document_intelligence
 from . import telegram_client
+from . import telegram_contact
+from . import query_service
+from . import assisted_query_ai
+from . import query_audit
+from . import speech_client
 from . import invoice_intake_line

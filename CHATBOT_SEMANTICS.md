@@ -95,3 +95,22 @@ Notes:
 5. Audit retention period (12 months proposed).
 
 If you agree with all proposals, approve and merge as is.
+
+## 6. `sudo()` audit of `rioclaro.query.service` (M3)
+
+Every `sudo()` in the query service runs only after `run_tool` has resolved an
+active contact and checked the tool's permission flag, and each search applies
+`_company_scope` (and `_partner_scope` for sales, purchases, invoices and
+orders). Product tools use the company scope plus a storable-product filter
+and the warehouse lookup is restricted to the contact's company. No tool
+accepts a model, domain, field list or partner from the caller. Tests in
+`test_query_service.py` and `test_query_aggregation.py` cover cross-partner
+and cross-company isolation.
+
+## 7. Aggregation tool argument (M3)
+
+`aggregate_sales`, `aggregate_purchases` and `aggregate_invoices` take one
+text argument: empty (last 30 days), `<days>` (1-366) or
+`YYYY-MM-DD,YYYY-MM-DD` (past dates, at most 366 days). Anything else is
+`invalid_input`. Totals are computed by Odoo per currency, in the
+`America/Mexico_City` timezone, with credit notes subtracted from invoices.

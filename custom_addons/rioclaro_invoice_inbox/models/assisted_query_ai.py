@@ -204,6 +204,9 @@ class AzureOpenAIClient:
             "recent_purchases": "Devuelve compras recientes autorizadas para el remitente.",
             "recent_sales": "Devuelve ventas recientes autorizadas para el remitente.",
             "recent_invoices": "Devuelve facturas publicadas autorizadas para el remitente.",
+            "aggregate_sales": "Total de ventas confirmadas por moneda. Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'.",
+            "aggregate_purchases": "Total de compras confirmadas por moneda. Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'.",
+            "aggregate_invoices": "Total de facturas publicadas (notas de crédito restadas) por tipo y moneda. Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'.",
             "order_status": "Busca el estado de una orden por referencia exacta.",
         }
         return descriptions[tool_name]

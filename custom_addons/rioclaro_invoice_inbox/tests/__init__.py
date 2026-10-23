@@ -5,3 +5,5 @@ from . import test_telegram_intake
 from . import test_query_service
 from . import test_assisted_query_ai
 from . import test_speech_client
+from . import test_date_range
+from . import test_query_aggregation

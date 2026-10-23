@@ -81,6 +81,26 @@ class TestOrchestrator(TransactionCase):
     @patch.object(AzureOpenAIClient, "summarize_rows")
     @patch.object(AzureOpenAIClient, "choose_tool")
     @patch.object(QueryService, "run_tool")
+    def test_multi_product_stock_is_listed_not_summed_by_model(
+        self, run_tool, choose_tool, summarize
+    ):
+        choose_tool.return_value = _choice("stock_by_product", "silla")
+        run_tool.return_value = {
+            "ok": True,
+            "rows": [
+                {"product": "Silla A", "on_hand": 26.0, "available": 26.0, "uom": "Units"},
+                {"product": "Silla B", "on_hand": 40.0, "available": 13.0, "uom": "Units"},
+            ],
+        }
+        result = self.ai.answer(1, "stock de silla")
+        summarize.assert_not_called()
+        self.assertIn("Silla A: 26 en existencia, 26 disponibles", result["answer"])
+        self.assertIn("Silla B: 40 en existencia, 13 disponibles", result["answer"])
+        self.assertNotIn("66", result["answer"])
+
+    @patch.object(AzureOpenAIClient, "summarize_rows")
+    @patch.object(AzureOpenAIClient, "choose_tool")
+    @patch.object(QueryService, "run_tool")
     def test_no_rows_never_reaches_the_model(self, run_tool, choose_tool, summarize):
         choose_tool.return_value = _choice("aggregate_sales", "30")
         run_tool.return_value = {"ok": True, "rows": []}

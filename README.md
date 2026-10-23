@@ -160,6 +160,17 @@ the answer as text instead. Voice requests use the same 5-per-contact,
 per-5-minute limit and are marked as voice input in the audit view; audio and
 transcribed text are not stored by the audit model.
 
+Verify the deployment picks the right tool (needs the `RIOCLARO_AOAI_*`
+variables in `.env`; prints no secrets and queries no Odoo data):
+
+```
+PW=$(grep ^ODOO_DB_PASSWORD .env | cut -d= -f2)
+docker compose exec -T odoo odoo shell -c /etc/odoo/odoo.conf -d <database> \
+  --db_host=odoo-db --db_user=odoo --db_password="$PW" \
+  --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons \
+  --http-port=0 < scripts/live_tool_selection_check.py
+```
+
 ## Azure email screening foundation
 
 The Azure Function in `azure/email-screening/` classifies incoming message

@@ -141,6 +141,14 @@ The add-on includes a first safe assistant layer
 - executes that tool through Odoo ACL and partner/company scoping; and
 - asks Azure OpenAI to phrase the final answer using only the authorized rows.
 
+Safety rules enforced in code: at most 2 tool calls per question (a single
+`search_products` candidate is chained to `get_product_stock` by the server,
+never by the model); empty results get a fixed "no results" message and
+several product candidates a fixed clarification list, without calling the
+model; rows sent to the model are truncated and stripped of control
+characters, and the prompts tell the model to ignore instructions found in the
+question or the data.
+
 Set these environment variables in the ignored `.env` file:
 
 - `RIOCLARO_AOAI_ENDPOINT`

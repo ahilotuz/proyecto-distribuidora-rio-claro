@@ -7,3 +7,4 @@ from . import test_assisted_query_ai
 from . import test_speech_client
 from . import test_date_range
 from . import test_query_aggregation
+from . import test_orchestrator

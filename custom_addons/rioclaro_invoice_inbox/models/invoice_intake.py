@@ -328,6 +328,10 @@ class SupplierInvoiceIntake(models.Model):
             _logger.info("Telegram polling skipped: bot token is not configured.")
             return 0
 
+        if os.environ.get("RIOCLARO_TELEGRAM_WEBHOOK_SECRET", ""):
+            _logger.info("Telegram polling skipped: webhook mode is configured.")
+            return 0
+
         params = self.env["ir.config_parameter"].sudo()
         if not params.get_bool(_TELEGRAM_POLLING_PARAM):
             _logger.info("Telegram polling skipped: it is not enabled in this database.")
@@ -343,43 +347,7 @@ class SupplierInvoiceIntake(models.Model):
         created = 0
         for message in messages:
             try:
-                if message.text and not message.file:
-                    self._process_telegram_text_query(client, message)
-                    continue
-                if message.voice:
-                    if (
-                        message.voice.duration_seconds is not None
-                        and message.voice.duration_seconds > 60
-                    ):
-                        self._process_telegram_text_query(
-                            client,
-                            message,
-                            voice_duration_seconds=message.voice.duration_seconds,
-                        )
-                        continue
-                    voice_audio = client.download_file(message.voice.file_id)
-                    self._process_telegram_text_query(
-                        client,
-                        message,
-                        voice_audio=voice_audio,
-                        voice_duration_seconds=message.voice.duration_seconds,
-                    )
-                    continue
-                if not message.file:
-                    continue
-                if not self._is_telegram_sender_allowed(message.sender_id):
-                    client.send_message(message.chat_id, "No autorizado.")
-                    continue
-                source_id = f"telegram:{message.chat_id}:{message.message_id}"
-                is_new = not self.search_count([("source_message_id", "=", source_id)])
-                record = self.create_from_telegram(
-                    message, client.download_file(message.file.file_id)
-                )
-                if record and is_new:
-                    created += 1
-                    client.send_message(
-                        message.chat_id, f"Recibido. Registro: {record.name}"
-                    )
+                created += self._handle_telegram_message(client, message)
             except TelegramError:
                 _logger.warning(
                     "Telegram message %s could not be processed; it will be retried.",
@@ -390,6 +358,58 @@ class SupplierInvoiceIntake(models.Model):
         if next_offset is not None:
             params.set_int(_TELEGRAM_OFFSET_PARAM, next_offset)
         return created
+
+    @api.model
+    def _handle_telegram_message(
+        self, client: TelegramClient, message: TelegramMessage
+    ) -> int:
+        """Process one Telegram message (text/voice query or invoice file).
+
+        Shared by polling and the webhook queue.
+
+        Returns:
+            ``1`` when a new intake record was created, otherwise ``0``.
+
+        Raises:
+            TelegramError: When a Telegram call fails and the message must be
+                retried.
+        """
+        if message.text and not message.file:
+            self._process_telegram_text_query(client, message)
+            return 0
+        if message.voice:
+            if (
+                message.voice.duration_seconds is not None
+                and message.voice.duration_seconds > 60
+            ):
+                self._process_telegram_text_query(
+                    client,
+                    message,
+                    voice_duration_seconds=message.voice.duration_seconds,
+                )
+                return 0
+            voice_audio = client.download_file(message.voice.file_id)
+            self._process_telegram_text_query(
+                client,
+                message,
+                voice_audio=voice_audio,
+                voice_duration_seconds=message.voice.duration_seconds,
+            )
+            return 0
+        if not message.file:
+            return 0
+        if not self._is_telegram_sender_allowed(message.sender_id):
+            client.send_message(message.chat_id, "No autorizado.")
+            return 0
+        source_id = f"telegram:{message.chat_id}:{message.message_id}"
+        is_new = not self.search_count([("source_message_id", "=", source_id)])
+        record = self.create_from_telegram(
+            message, client.download_file(message.file.file_id)
+        )
+        if record and is_new:
+            client.send_message(message.chat_id, f"Recibido. Registro: {record.name}")
+            return 1
+        return 0
 
     @api.model
     def _process_telegram_text_query(

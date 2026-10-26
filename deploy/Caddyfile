@@ -9,5 +9,6 @@
 		Referrer-Policy "same-origin"
 		-Server
 	}
+	respond /web/database/* 404
 	reverse_proxy odoo:8069
 }

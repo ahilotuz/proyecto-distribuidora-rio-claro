@@ -45,4 +45,4 @@ docker compose -f compose.prod.yaml up -d
 
 - `curl -sI https://rioclaro.ropech.com/web/login` returns `200`.
 - `curl -m 5 http://20.151.139.73:8069` fails (port not published).
-- `https://rioclaro.ropech.com/web/database/manager` is not available (`list_db = False`).
+- `https://rioclaro.ropech.com/web/database/manager` returns 404 (blocked in Caddy and `list_db = False`).

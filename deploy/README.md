@@ -17,6 +17,8 @@ SITE_DOMAIN=rioclaro.ropech.com
 ODOO_DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 EOF
 chmod 600 .env odoo.prod.conf
+# The Odoo container runs as uid 100 (odoo) and must be able to read its config
+sudo chown 100:101 odoo.prod.conf
 
 # Create the database with the add-on and demo data, then start everything
 docker compose -f compose.prod.yaml run --rm odoo odoo -c /etc/odoo/odoo.conf \

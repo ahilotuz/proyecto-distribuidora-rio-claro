@@ -20,9 +20,9 @@ chmod 600 .env odoo.prod.conf
 # The Odoo container runs as uid 100 (odoo) and must be able to read its config
 sudo chown 100:101 odoo.prod.conf
 
-# Create the database with the add-on and demo data, then start everything
+# Create the database with the add-on (empty, no demo data), then start everything
 docker compose -f compose.prod.yaml run --rm odoo odoo -c /etc/odoo/odoo.conf \
-  -d rioclaro -i rioclaro_invoice_inbox --with-demo --stop-after-init \
+  -d rioclaro -i rioclaro_invoice_inbox --stop-after-init \
   --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons
 docker compose -f compose.prod.yaml up -d
 ```

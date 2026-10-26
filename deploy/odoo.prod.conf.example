@@ -1,0 +1,7 @@
+[options]
+; Copy to deploy/odoo.prod.conf (git-ignored) and replace the password.
+admin_passwd = CHANGE_ME_LONG_RANDOM
+http_interface = 0.0.0.0
+proxy_mode = True
+list_db = False
+db_filter = ^rioclaro$

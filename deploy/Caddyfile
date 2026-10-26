@@ -1,0 +1,14 @@
+{$SITE_DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 25MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+	respond /web/database/* 404
+	reverse_proxy odoo:8069
+}

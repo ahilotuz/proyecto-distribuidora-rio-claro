@@ -73,6 +73,10 @@ def _voice_message(
 class TestTelegramIntake(TransactionCase):
     def setUp(self):
         super().setUp()
+        # Polling tests must not depend on the developer's webhook configuration.
+        webhook_env = patch.dict("os.environ", {"RIOCLARO_TELEGRAM_WEBHOOK_SECRET": ""})
+        webhook_env.start()
+        self.addCleanup(webhook_env.stop)
         self.intake = self.env["rioclaro.invoice.intake"]
         self.env["rioclaro.telegram.contact"].create(
             {"name": "Proveedor", "telegram_user_id": "777", "role": "internal"}

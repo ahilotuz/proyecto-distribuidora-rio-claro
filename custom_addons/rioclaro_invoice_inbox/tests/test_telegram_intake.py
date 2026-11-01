@@ -279,6 +279,34 @@ class TestTelegramIntake(TransactionCase):
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer", return_value={"ok": True, "answer": "ok", "tool": "recent_sales"})
+    def test_query_rate_limit_is_configurable(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        self.env["ir.config_parameter"].sudo().set_int(
+            "rioclaro_invoice_inbox.telegram_query_rate_limit", 6
+        )
+        audit_model = self.env["rioclaro.assisted.query.audit"]
+        contact = self.env["rioclaro.telegram.contact"].search(
+            [("telegram_user_id", "=", "777")]
+        )
+        for index in range(5):
+            audit_model.log_request(
+                telegram_user_id=777,
+                source_message_id=f"telegram:555:cfg-{index}",
+                outcome="allowed",
+                contact=contact,
+                tool="recent_sales",
+            )
+        updates_mock.return_value = (206, [_text_message(message_id=52)])
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_called_once()
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
     def test_duplicate_text_message_is_not_run_twice(
         self, answer_mock, _send_mock, updates_mock

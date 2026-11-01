@@ -1579,10 +1579,24 @@ Lessons learned:
 - After code changes on the VM run `git pull`, `odoo -u rioclaro_invoice_inbox`
   with the DB flags, then restart the container.
 
+### F. M7 first slice: plain-text replies, runbook flags, editable rate limit
+
+- Model answers are post-processed by `plain_text()` so Telegram no longer shows
+  literal `**bold**`; bullets are normalised to `•` and the prompt asks for plain text.
+- `deploy/README.md` and `scripts/telegram_webhook.py` now show the required
+  `--db_host/--db_user/--db_password/--addons-path/--http-port=0` flags for
+  `odoo shell` and `odoo -u` (without them they fail with a Postgres socket error).
+- The per-contact query limit is editable in **Settings > Río Claro Chatbot**
+  (administrators only): *Queries per contact* (default 5) and *Window (minutes)*
+  (default 5). They are stored as the system parameters
+  `rioclaro_invoice_inbox.telegram_query_rate_limit` and
+  `rioclaro_invoice_inbox.telegram_query_window_minutes`; values below 1 are
+  treated as 1. After deploying run `odoo -u rioclaro_invoice_inbox` so the
+  Settings view loads.
+
 **LAST_COMPLETED_STEP:** email ingestion verified on the VM (screening Function,
 IMAP, extraction, vendor bill with taxes, negative test).
-**Next:** M7 (audit/operations: correlation ID, kill switch, budget alert,
-configurable rate limit, Markdown cleanup, runbook DB-flag fix).
+**Next:** rest of M7 (correlation ID and latency per query, kill switch, budget alert, spend cap, incident owner).
 
 ## 17. Draft vendor bill feature verification
 

@@ -22,6 +22,8 @@ _INTAKE_COMPANY_PARAM = "rioclaro_invoice_inbox.company_id"
 _TELEGRAM_OFFSET_PARAM = "rioclaro_invoice_inbox.telegram_update_offset"
 _TELEGRAM_POLLING_PARAM = "rioclaro_invoice_inbox.telegram_polling_enabled"
 _EXTRACTABLE_MIMETYPES = {"application/pdf", "image/jpeg", "image/png"}
+_TELEGRAM_RATE_LIMIT_PARAM = "rioclaro_invoice_inbox.telegram_query_rate_limit"
+_TELEGRAM_RATE_WINDOW_PARAM = "rioclaro_invoice_inbox.telegram_query_window_minutes"
 _TELEGRAM_QUERY_RATE_LIMIT = 5
 _TELEGRAM_QUERY_WINDOW_MINUTES = 5
 _TELEGRAM_MAX_REPLY_LENGTH = 4000
@@ -450,16 +452,23 @@ class SupplierInvoiceIntake(models.Model):
             )
             return
 
-        window_start = fields.Datetime.now() - timedelta(
-            minutes=_TELEGRAM_QUERY_WINDOW_MINUTES
+        params = self.env["ir.config_parameter"].sudo()
+        rate_limit = max(
+            params.get_int(_TELEGRAM_RATE_LIMIT_PARAM, default=_TELEGRAM_QUERY_RATE_LIMIT),
+            1,
         )
+        window_minutes = max(
+            params.get_int(_TELEGRAM_RATE_WINDOW_PARAM, default=_TELEGRAM_QUERY_WINDOW_MINUTES),
+            1,
+        )
+        window_start = fields.Datetime.now() - timedelta(minutes=window_minutes)
         recent_count = audit_model.search_count(
             [
                 ("contact_id", "=", contact.id),
                 ("request_at", ">=", window_start),
             ]
         )
-        if recent_count >= _TELEGRAM_QUERY_RATE_LIMIT:
+        if recent_count >= rate_limit:
             audit_model.log_request(
                 telegram_user_id=message.sender_id,
                 source_message_id=source_id,

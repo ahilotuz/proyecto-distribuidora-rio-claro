@@ -233,6 +233,10 @@ class AzureOpenAIClient:
             "aggregate_purchases": "Total de compras confirmadas por moneda. Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'.",
             "aggregate_invoices": "Total de facturas publicadas (notas de crédito restadas) por tipo y moneda. Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'.",
             "order_status": "Busca el estado de una orden por referencia exacta.",
+            "top_products": "Productos más vendidos (top 5, por importe sin impuestos y unidades). Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'. Para 'hoy' usa 1.",
+            "compare_sales": "Compara las ventas de los últimos N días contra los N días anteriores (cambio y porcentaje). Texto: número de días (1-183), vacío = 7.",
+            "product_margin": "Margen de ganancia por categoría de producto (ingreso, costo, margen, % de margen). Texto: vacío (30 días), número de días (1-366) o 'AAAA-MM-DD,AAAA-MM-DD'.",
+            "open_balances": "Facturas abiertas por cobrar y por pagar, y la parte vencida (no es saldo bancario). Texto vacío.",
         }
         return descriptions[tool_name]
 

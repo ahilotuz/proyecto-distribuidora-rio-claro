@@ -7,9 +7,10 @@ or field list. Tools return a fixed set of fields.
 """
 
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any
 
-from odoo import api, models
+from odoo import api, fields, models
 
 from .date_range import DateRange, parse_date_range
 
@@ -35,6 +36,10 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
     "aggregate_purchases": ("can_query_purchases", "_tool_aggregate_purchases"),
     "aggregate_invoices": ("can_query_billing", "_tool_aggregate_invoices"),
     "order_status": ("can_check_order_status", "_tool_order_status"),
+    "top_products": ("can_query_sales", "_tool_top_products"),
+    "compare_sales": ("can_query_sales", "_tool_compare_sales"),
+    "product_margin": ("can_query_margins", "_tool_product_margin"),
+    "open_balances": ("can_query_billing", "_tool_open_balances"),
 }
 
 
@@ -355,6 +360,179 @@ class QueryService(models.AbstractModel):
             row["total"] = currency.round(row["total"])
             rows.append(row)
         return rows
+
+    @api.model
+    def _sale_line_domain(self, contact: models.Model, period: DateRange) -> list[tuple]:
+        """Confirmed sale lines in ``period`` limited to the contact's scope."""
+        return [
+            ("state", "in", ["sale", "done"]),
+            ("display_type", "=", False),
+            ("product_id", "!=", False),
+            ("order_id.date_order", ">=", period.start_utc),
+            ("order_id.date_order", "<", period.end_utc_exclusive),
+            ("order_id.company_id", "in", [False, contact.company_id.id]),
+        ] + [
+            ("order_id." + leaf[0], leaf[1], leaf[2]) for leaf in self._partner_scope(contact)
+        ]
+
+    @api.model
+    def _tool_top_products(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Best-selling products by untaxed revenue, with units sold."""
+        period = parse_date_range(text)
+        groups = self.env["sale.order.line"].sudo()._read_group(
+            self._sale_line_domain(contact, period),
+            ["product_id", "currency_id"],
+            ["product_uom_qty:sum", "price_subtotal:sum"],
+            order="price_subtotal:sum desc",
+            limit=MAX_RESULTS,
+        )
+        return [
+            {
+                "product": product.display_name,
+                "units": quantity,
+                "untaxed": currency.round(untaxed),
+                "currency": currency.name,
+                "from": str(period.start),
+                "to": str(period.end),
+            }
+            for product, currency, quantity, untaxed in groups
+        ]
+
+    @api.model
+    def _tool_compare_sales(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Compare the last N days with the N days before them (default 7)."""
+        days = 7 if not text else None
+        if days is None:
+            if not (text.isascii() and text.isdigit()) or not 1 <= int(text) <= 183:
+                raise ValueError("days out of range")
+            days = int(text)
+        current = parse_date_range(str(days))
+        previous = DateRange(
+            current.start - timedelta(days=days), current.start - timedelta(days=1)
+        )
+        now_rows = {
+            row["currency"]: row
+            for row in self._aggregate_orders(
+                contact, "sale.order", ["sale", "done"], current
+            )
+        }
+        before_rows = {
+            row["currency"]: row
+            for row in self._aggregate_orders(
+                contact, "sale.order", ["sale", "done"], previous
+            )
+        }
+        rows = []
+        for currency in sorted(set(now_rows) | set(before_rows)):
+            now = now_rows.get(currency, {})
+            before = before_rows.get(currency, {})
+            now_total = now.get("untaxed", 0.0)
+            before_total = before.get("untaxed", 0.0)
+            rows.append(
+                {
+                    "currency": currency,
+                    "current_from": str(current.start),
+                    "current_to": str(current.end),
+                    "current_orders": now.get("count", 0),
+                    "current_untaxed": now_total,
+                    "previous_from": str(previous.start),
+                    "previous_to": str(previous.end),
+                    "previous_orders": before.get("count", 0),
+                    "previous_untaxed": before_total,
+                    "change_untaxed": round(now_total - before_total, 2),
+                    "change_pct": (
+                        round((now_total - before_total) / before_total * 100, 1)
+                        if before_total
+                        else None
+                    ),
+                }
+            )
+        return rows
+
+    @api.model
+    def _tool_product_margin(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Margin per product category from untaxed revenue minus product cost.
+
+        Lines whose product has no cost are counted but excluded from the margin.
+        Internal contacts only.
+        """
+        if contact.role != "internal":
+            return []
+        period = parse_date_range(text)
+        lines = self.env["sale.order.line"].sudo().search(
+            self._sale_line_domain(contact, period), limit=5000
+        )
+        categories: dict[tuple[str, str], dict[str, Any]] = {}
+        for line in lines:
+            category = line.product_id.categ_id.display_name or ""
+            row = categories.setdefault(
+                (category, line.currency_id.name),
+                {
+                    "category": category,
+                    "currency": line.currency_id.name,
+                    "revenue": 0.0,
+                    "cost": 0.0,
+                    "lines_without_cost": 0,
+                },
+            )
+            cost_each = line.product_id.with_company(contact.company_id).standard_price
+            if not cost_each:
+                row["lines_without_cost"] += 1
+                continue
+            row["revenue"] += line.price_subtotal
+            row["cost"] += cost_each * line.product_uom_qty
+        rows = []
+        for row in categories.values():
+            row["margin"] = round(row["revenue"] - row["cost"], 2)
+            row["margin_pct"] = (
+                round(row["margin"] / row["revenue"] * 100, 1) if row["revenue"] else None
+            )
+            row["revenue"] = round(row["revenue"], 2)
+            row["cost"] = round(row["cost"], 2)
+            row["from"] = str(period.start)
+            row["to"] = str(period.end)
+            rows.append(row)
+        rows.sort(key=lambda row: row["margin"], reverse=True)
+        return rows[:MAX_RESULTS]
+
+    @api.model
+    def _tool_open_balances(
+        self, contact: models.Model, text: str
+    ) -> list[dict[str, Any]]:
+        """Unpaid posted invoices: receivable, payable and the overdue part.
+
+        This is not a bank balance; it only covers open invoices. Internal only.
+        """
+        if contact.role != "internal":
+            return []
+        today = fields.Date.context_today(self)
+        domain = self._company_scope(contact) + [
+            ("state", "=", "posted"),
+            ("move_type", "in", ["out_invoice", "out_refund", "in_invoice", "in_refund"]),
+            ("payment_state", "in", ["not_paid", "partial"]),
+        ]
+        moves = self.env["account.move"].sudo().search(domain)
+        totals: dict[tuple[str, str], dict[str, Any]] = {}
+        for move in moves:
+            kind = "receivable" if move.move_type.startswith("out_") else "payable"
+            row = totals.setdefault(
+                (kind, move.currency_id.name),
+                {"kind": kind, "currency": move.currency_id.name, "open": 0.0, "overdue": 0.0},
+            )
+            sign = -1 if move.move_type.endswith("_refund") else 1
+            row["open"] += sign * move.amount_residual
+            if move.invoice_date_due and move.invoice_date_due < today:
+                row["overdue"] += sign * move.amount_residual
+        return [
+            {**row, "open": round(row["open"], 2), "overdue": round(row["overdue"], 2)}
+            for _, row in sorted(totals.items())
+        ]
 
     @api.model
     def _tool_recent_purchases(

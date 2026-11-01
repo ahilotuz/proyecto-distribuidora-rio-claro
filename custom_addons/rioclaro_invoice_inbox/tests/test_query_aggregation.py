@@ -194,3 +194,83 @@ class TestQueryAggregation(TransactionCase):
         for tool in ("aggregate_sales", "aggregate_purchases", "aggregate_invoices"):
             self.assertTrue(self.service.run_tool(11, tool)["ok"])
             self.assertTrue(self.service.run_tool(11, tool, "90")["ok"])
+
+    # Executive tools: top products, week comparison, margins, open balances.
+    def _days_ago(self, days: int) -> str:
+        from datetime import datetime, timedelta
+
+        return (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_top_products_ranks_by_revenue(self):
+        other = self.env["product.product"].create(
+            {"name": "Agg Other", "type": "consu", "list_price": 10}
+        )
+        self._sale(self.customer_a, 2, "2026-01-10 12:00:00")
+        order = self._sale(self.customer_b, 1, "2026-01-11 12:00:00", confirm=False)
+        order.order_line.product_id = other
+        order.action_confirm()
+        order.date_order = "2026-01-11 12:00:00"
+        rows = self._rows(11, "top_products")
+        self.assertEqual(rows[0]["product"], "Agg Product")
+        self.assertEqual(rows[0]["units"], 2.0)
+        self.assertEqual(rows[0]["untaxed"], 200.0)
+        self.assertEqual(len(rows), 2)
+
+    def test_top_products_customer_sees_only_own_sales(self):
+        self._sale(self.customer_a, 2, "2026-01-10 12:00:00")
+        self._sale(self.customer_b, 9, "2026-01-11 12:00:00")
+        rows = self._rows(12, "top_products")
+        self.assertEqual(rows[0]["units"], 2.0)
+
+    def test_compare_sales_current_versus_previous_period(self):
+        self._sale(self.customer_a, 3, self._days_ago(1))
+        self._sale(self.customer_a, 1, self._days_ago(9))
+        rows = self._rows(11, "compare_sales", "7")
+        self.assertEqual(rows[0]["current_untaxed"], 300.0)
+        self.assertEqual(rows[0]["previous_untaxed"], 100.0)
+        self.assertEqual(rows[0]["change_untaxed"], 200.0)
+        self.assertEqual(rows[0]["change_pct"], 200.0)
+
+    def test_compare_sales_rejects_bad_days(self):
+        result = self.service.run_tool(11, "compare_sales", "500")
+        self.assertEqual(result["error"], "invalid_input")
+
+    def test_product_margin_uses_product_cost(self):
+        self.product.standard_price = 60.0
+        self._sale(self.customer_a, 2, "2026-01-10 12:00:00")
+        rows = self._rows(11, "product_margin")
+        self.assertEqual(rows[0]["revenue"], 200.0)
+        self.assertEqual(rows[0]["cost"], 120.0)
+        self.assertEqual(rows[0]["margin"], 80.0)
+        self.assertEqual(rows[0]["margin_pct"], 40.0)
+
+    def test_product_margin_counts_lines_without_cost(self):
+        self.product.standard_price = 0.0
+        self._sale(self.customer_a, 2, "2026-01-10 12:00:00")
+        rows = self._rows(11, "product_margin")
+        self.assertEqual(rows[0]["lines_without_cost"], 1)
+        self.assertEqual(rows[0]["revenue"], 0.0)
+
+    def test_product_margin_requires_permission(self):
+        self.internal.can_query_margins = False
+        self.assertEqual(
+            self.service.run_tool(11, "product_margin", RANGE)["error"], "denied"
+        )
+
+    def test_product_margin_is_empty_for_external_roles(self):
+        self.env["rioclaro.telegram.contact"].search(
+            [("telegram_user_id", "=", "12")]
+        ).can_query_margins = True
+        self.assertEqual(self._rows(12, "product_margin"), [])
+
+    def test_open_balances_split_receivable_payable_overdue(self):
+        self._invoice("out_invoice", self.customer_a, 100.0, "2026-01-05")
+        self._invoice("in_invoice", self.supplier_a, 40.0, "2026-01-06")
+        rows = {row["kind"]: row for row in self._rows(11, "open_balances", "")}
+        self.assertGreaterEqual(rows["receivable"]["open"], 100.0)
+        self.assertGreaterEqual(rows["payable"]["open"], 40.0)
+        self.assertGreaterEqual(rows["receivable"]["overdue"], 100.0)
+
+    def test_open_balances_is_empty_for_external_roles(self):
+        self._invoice("out_invoice", self.customer_a, 100.0, "2026-01-05")
+        self.assertEqual(self._rows(12, "open_balances", ""), [])

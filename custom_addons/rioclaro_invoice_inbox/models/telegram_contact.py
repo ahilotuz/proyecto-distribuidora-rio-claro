@@ -6,6 +6,7 @@ PERMISSION_FIELDS: tuple[str, ...] = (
     "can_query_purchases",
     "can_query_sales",
     "can_query_billing",
+    "can_query_margins",
     "can_check_order_status",
     "can_request_quotation",
     "can_submit_vendor_invoice",
@@ -71,6 +72,7 @@ class TelegramContact(models.Model):
     can_query_purchases = fields.Boolean(string="Query purchases")
     can_query_sales = fields.Boolean(string="Query sales")
     can_query_billing = fields.Boolean(string="Query billing")
+    can_query_margins = fields.Boolean(string="Query margins and costs")
     can_check_order_status = fields.Boolean(string="Check order status")
     can_request_quotation = fields.Boolean(string="Request quotation")
     can_submit_vendor_invoice = fields.Boolean(string="Submit vendor invoice")

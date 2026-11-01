@@ -36,6 +36,7 @@
                             <field name="can_query_purchases"/>
                             <field name="can_query_sales"/>
                             <field name="can_query_billing"/>
+                            <field name="can_query_margins"/>
                             <field name="can_check_order_status"/>
                             <field name="can_request_quotation"/>
                             <field name="can_submit_vendor_invoice"/>

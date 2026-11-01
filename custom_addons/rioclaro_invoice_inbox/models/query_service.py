@@ -13,6 +13,8 @@ from odoo import api, models
 
 from .date_range import DateRange, parse_date_range
 
+# Product names are Spanish; background callers (cron, webhook) carry no language.
+QUERY_LANG = "es_MX"
 MAX_RESULTS = 5
 MAX_TEXT_LENGTH = 80
 MAX_CANDIDATES = 5
@@ -70,12 +72,25 @@ class QueryService(models.AbstractModel):
         clean_text = (text or "").strip()
         if len(clean_text) > MAX_TEXT_LENGTH:
             return {"ok": False, "error": "invalid_input"}
-        method: Callable[..., list[dict[str, Any]]] = getattr(self, method_name)
+        scoped = self._with_query_language()
+        method: Callable[..., list[dict[str, Any]]] = getattr(scoped, method_name)
         try:
             rows = method(contact, clean_text)
         except ValueError:
             return {"ok": False, "error": "invalid_input"}
         return {"ok": True, "tool": tool, "rows": rows}
+
+    @api.model
+    def _with_query_language(self) -> "QueryService":
+        """Return ``self`` in the Spanish query language when it is installed.
+
+        Forcing an inactive language raises, so fresh databases that only have
+        English keep the caller's context.
+        """
+        installed = self.env["res.lang"].sudo().search_count(
+            [("code", "=", QUERY_LANG), ("active", "=", True)]
+        )
+        return self.with_context(lang=QUERY_LANG) if installed else self
 
     @api.model
     def _partner_scope(self, contact: models.Model) -> list[tuple]:

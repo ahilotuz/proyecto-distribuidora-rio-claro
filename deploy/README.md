@@ -51,3 +51,22 @@ docker compose -f compose.prod.yaml up -d
 - `curl -sI https://rioclaro.ropech.com/web/login` returns `200`.
 - `curl -m 5 http://20.151.139.73:8069` fails (port not published).
 - `https://rioclaro.ropech.com/web/database/manager` returns 404 (blocked in Caddy and `list_db = False`).
+
+## Telegram webhook (M6)
+
+Webhook mode is on when `RIOCLARO_TELEGRAM_WEBHOOK_SECRET` is set; polling is then
+skipped. Only one mode may use a bot token at a time, so first stop any local
+instance that polls the same bot (disable its polling parameter or stop its stack).
+
+```bash
+cd ~/app/deploy
+printf 'RIOCLARO_TELEGRAM_WEBHOOK_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+# add RIOCLARO_TELEGRAM_BOT_TOKEN (and the AOAI/Speech keys) to .env, then:
+docker compose -f compose.prod.yaml up -d
+docker compose -f compose.prod.yaml exec -T -e ACTION=set odoo \
+  odoo shell -c /etc/odoo/odoo.conf -d rioclaro < ../scripts/telegram_webhook.py
+```
+
+`ACTION=info` shows Telegram's pending count and last error; `ACTION=delete`
+removes the webhook (rollback to polling: unset the secret and enable
+`rioclaro_invoice_inbox.telegram_polling_enabled`).

@@ -10,6 +10,7 @@
         "security/ir.access.csv",
         "data/mail_alias.xml",
         "data/ir_cron_telegram.xml",
+        "data/ir_cron_telegram_updates.xml",
         "views/invoice_intake_views.xml",
         "views/telegram_contact_views.xml",
         "views/query_audit_views.xml",

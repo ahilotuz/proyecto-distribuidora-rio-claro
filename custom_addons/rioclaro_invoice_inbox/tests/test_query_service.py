@@ -268,3 +268,37 @@ class TestQueryService(TransactionCase):
         )
         move.action_post()
         return move
+
+
+@tagged("post_install", "-at_install")
+class TestQueryServiceLanguage(TransactionCase):
+    """Background callers have no language; Spanish names must still match."""
+
+    def setUp(self):
+        super().setUp()
+        self.env["res.lang"]._activate_lang("es_MX")
+        product = self.env["product.product"].create(
+            {"name": "Conference Chair", "is_storable": True, "type": "consu"}
+        )
+        product.product_tmpl_id.with_context(lang="es_MX").name = "Silla de conferencias"
+        self.contact = self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Lang tester",
+                "telegram_user_id": "777",
+                "role": "internal",
+                "can_query_inventory": True,
+                "company_id": self.env.company.id,
+            }
+        )
+
+    def _names(self, lang):
+        service = self.env["rioclaro.query.service"].with_context(lang=lang)
+        result = service.run_tool("777", "stock_by_product", "silla")
+        self.assertTrue(result["ok"])
+        return [row["product"] for row in result["rows"]]
+
+    def test_spanish_name_matches_without_caller_language(self):
+        self.assertEqual(self._names(False), ["Silla de conferencias"])
+
+    def test_spanish_name_matches_with_english_caller(self):
+        self.assertEqual(self._names("en_US"), ["Silla de conferencias"])

@@ -85,6 +85,38 @@ class TelegramClient:
         next_offset = last_update_id + 1 if last_update_id is not None else None
         return next_offset, messages
 
+    def set_webhook(self, url: str, secret_token: str) -> None:
+        """Register the HTTPS webhook; Telegram echoes the secret in a header."""
+        if not url.startswith("https://"):
+            raise ValueError("Telegram webhook URL must use HTTPS.")
+        if not 1 <= len(secret_token) <= 256:
+            raise ValueError("Telegram webhook secret must be 1-256 characters.")
+        self._call(
+            "setWebhook",
+            {
+                "url": url,
+                "secret_token": secret_token,
+                "allowed_updates": json.dumps(["message"]),
+                "drop_pending_updates": "false",
+            },
+        )
+
+    def delete_webhook(self) -> None:
+        """Remove the webhook so getUpdates polling works again."""
+        self._call("deleteWebhook", {"drop_pending_updates": "false"})
+
+    def webhook_info(self) -> dict[str, Any]:
+        """Return Telegram's webhook status (url, pending count, last error)."""
+        info = self._call("getWebhookInfo", {})
+        return info if isinstance(info, dict) else {}
+
+    @staticmethod
+    def parse_update(update: dict[str, Any]) -> TelegramMessage | None:
+        """Parse a raw update into a private message, or ``None`` if unsupported."""
+        if not isinstance(update, dict) or not isinstance(update.get("update_id"), int):
+            return None
+        return TelegramClient._parse_message(update)
+
     def download_file(self, file_id: str) -> bytes:
         """Download a file sent to the bot (Telegram limits bots to 20 MB)."""
         file_info = self._call("getFile", {"file_id": file_id})

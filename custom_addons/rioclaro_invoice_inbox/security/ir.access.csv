@@ -3,3 +3,4 @@ access_rioclaro_invoice_intake_accountant,rioclaro_invoice_intake_accountant,rio
 access_rioclaro_invoice_intake_line_accountant,rioclaro_invoice_intake_line_accountant,rioclaro.invoice.intake.line,account.group_account_invoice,cru,"[('intake_id.company_id', 'in', company_ids)]"
 access_rioclaro_telegram_contact_admin,rioclaro_telegram_contact_admin,rioclaro.telegram.contact,base.group_system,crud,
 access_rioclaro_assisted_query_audit_admin,rioclaro_assisted_query_audit_admin,rioclaro.assisted.query.audit,base.group_system,crud,
+access_rioclaro_telegram_update_admin,rioclaro_telegram_update_admin,rioclaro.telegram.update,base.group_system,crud,

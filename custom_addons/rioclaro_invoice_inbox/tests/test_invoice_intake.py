@@ -759,3 +759,34 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
         self.assertEqual(len(lines), 2)
         self.assertEqual(sorted(lines.mapped("name")), ["Service", "Widget"])
         self.assertEqual(record.invoice_id.amount_untaxed, 150.0)
+
+    def test_action_create_vendor_bill_applies_matching_purchase_tax(self):
+        partner = self.env["res.partner"].create({"name": "Tax Supplier SA"})
+        company = self.env.company
+        tax = self.env["account.tax"].create(
+            {
+                "name": "Test purchase 16%",
+                "type_tax_use": "purchase",
+                "amount_type": "percent",
+                "amount": 16.0,
+                "company_id": company.id,
+            }
+        )
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Taxed invoice",
+                "source_message_id": "<bill-tax@example.test>",
+                "partner_id": partner.id,
+                "company_id": company.id,
+                "amount_untaxed": 35.0,
+                "amount_tax": 5.6,
+                "extracted_line_ids": [
+                    (0, 0, {"description": "Item", "quantity": 1.0, "unit_price": 35.0, "amount": 35.0}),
+                ],
+            }
+        )
+
+        record.action_create_vendor_bill()
+
+        self.assertEqual(record.invoice_id.invoice_line_ids.tax_ids, tax)
+        self.assertAlmostEqual(record.invoice_id.amount_total, 40.6, places=2)

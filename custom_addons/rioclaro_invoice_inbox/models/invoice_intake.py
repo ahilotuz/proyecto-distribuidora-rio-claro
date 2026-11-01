@@ -665,6 +665,28 @@ class SupplierInvoiceIntake(models.Model):
         ])
         return True
     
+    def _get_purchase_tax_commands(self) -> list:
+        """Return ORM commands linking the purchase tax implied by the extracted amounts.
+
+        The rate is derived from amount_tax / amount_untaxed and matched against the
+        company's percent-type purchase taxes. Returns an empty list when no tax was
+        extracted or no tax matches.
+        """
+        self.ensure_one()
+        if not (self.amount_tax and self.amount_untaxed):
+            return []
+        rate = round(self.amount_tax / self.amount_untaxed * 100, 2)
+        tax = self.env["account.tax"].search(
+            [
+                ("type_tax_use", "=", "purchase"),
+                ("amount_type", "=", "percent"),
+                ("amount", "=", rate),
+                ("company_id", "=", self.company_id.id),
+            ],
+            limit=1,
+        )
+        return [(6, 0, tax.ids)] if tax else []
+
     def action_create_vendor_bill(self) -> dict:
         """Create a draft vendor bill in account.move from this intake record.
 
@@ -708,6 +730,7 @@ class SupplierInvoiceIntake(models.Model):
                 _("Please specify a Vendor or Supplier RFC before creating a vendor bill.")
             )
 
+        tax_ids = self._get_purchase_tax_commands()
         bill_vals: dict = {
             "move_type": "in_invoice",
             "partner_id": partner.id,
@@ -727,6 +750,7 @@ class SupplierInvoiceIntake(models.Model):
                         "quantity": line.quantity or 1.0,
                         "price_unit": line.unit_price
                         or (line.amount / (line.quantity or 1.0)),
+                        "tax_ids": tax_ids,
                     },
                 )
                 for line in self.extracted_line_ids
@@ -741,6 +765,7 @@ class SupplierInvoiceIntake(models.Model):
                         "name": self.name or _("Supplier Invoice Intake Item"),
                         "price_unit": line_price,
                         "quantity": 1.0,
+                        "tax_ids": tax_ids,
                     },
                 )
             ]

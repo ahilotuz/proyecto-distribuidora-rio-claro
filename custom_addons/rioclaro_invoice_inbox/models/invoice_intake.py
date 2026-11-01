@@ -586,17 +586,23 @@ class SupplierInvoiceIntake(models.Model):
         )
         return True
     
-    def _get_extractable_attachment(self):
-        """Return the first PDF/JPEG/PNG attachment of this intake, or an empty recordset."""
+    def _get_extractable_attachments(self):
+        """Return PDF/JPEG/PNG attachments, PDFs first, then oldest first."""
         self.ensure_one()
         attachments = self.env["ir.attachment"].search([
             ("res_model", "=", self._name),
             ("res_id", "=", self.id),
         ]) | self.message_ids.attachment_ids
-        for attachment in attachments.sorted("id"):
-            if attachment.mimetype in _EXTRACTABLE_MIMETYPES:
-                return attachment
-        return self.env["ir.attachment"]
+        candidates = attachments.filtered(
+            lambda attachment: attachment.mimetype in _EXTRACTABLE_MIMETYPES
+        )
+        return candidates.sorted(
+            lambda attachment: (attachment.mimetype != "application/pdf", attachment.id)
+        )
+
+    def _get_extractable_attachment(self):
+        """Return the preferred PDF/JPEG/PNG attachment, or an empty recordset."""
+        return self._get_extractable_attachments()[:1]
 
     def action_extract_invoice_data(self) -> bool:
         """Send the first supported attachment to Azure and store the extracted data.
@@ -610,15 +616,21 @@ class SupplierInvoiceIntake(models.Model):
         api_key = os.environ.get("RIOCLARO_DOCUMENT_INTELLIGENCE_KEY", "")
         if not endpoint or not api_key:
             raise UserError(_("Azure Document Intelligence is not configured."))
-        attachment = self._get_extractable_attachment()
-        if not attachment:
+        attachments = self._get_extractable_attachments()
+        if not attachments:
             raise UserError(_("No PDF, JPEG or PNG attachment found to extract."))
 
         client = AzureDocumentIntelligenceClient(endpoint, api_key)
+        result = None
         try:
-            result = client.analyze_invoice(
-                attachment.raw, attachment.mimetype
-            )
+            # Emails often carry logos or signatures: keep the first attachment
+            # that yields invoice data, otherwise the first result.
+            for attachment in attachments:
+                candidate = client.analyze_invoice(attachment.raw, attachment.mimetype)
+                result = result or candidate
+                if candidate.invoice_number or candidate.amount_total:
+                    result = candidate
+                    break
         except DocumentIntelligenceError as error:
             self.extraction_state = "error"
             self.message_post(body=_("Invoice extraction failed: %s", str(error)))

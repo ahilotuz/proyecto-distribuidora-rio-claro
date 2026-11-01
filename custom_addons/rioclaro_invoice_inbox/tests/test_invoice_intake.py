@@ -790,3 +790,23 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
 
         self.assertEqual(record.invoice_id.invoice_line_ids.tax_ids, tax)
         self.assertAlmostEqual(record.invoice_id.amount_total, 40.6, places=2)
+
+    def test_deleting_vendor_bill_reopens_intake(self):
+        partner = self.env["res.partner"].create({"name": "Reopen Supplier SA"})
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {
+                "name": "Reopen invoice",
+                "source_message_id": "<bill-reopen@example.test>",
+                "partner_id": partner.id,
+                "amount_untaxed": 10.0,
+            }
+        )
+        record.action_create_vendor_bill()
+        self.assertEqual(record.state, "invoiced")
+
+        record.invoice_id.unlink()
+
+        self.assertEqual(record.state, "in_review")
+        self.assertFalse(record.invoice_id)
+        record.action_create_vendor_bill()
+        self.assertEqual(record.state, "invoiced")

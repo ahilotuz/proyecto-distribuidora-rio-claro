@@ -14,6 +14,7 @@
         "views/invoice_intake_views.xml",
         "views/telegram_contact_views.xml",
         "views/query_audit_views.xml",
+        "views/res_config_settings_views.xml",
     ],
     "installable": True,
     "application": True,

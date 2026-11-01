@@ -75,6 +75,21 @@ class TestAzureOpenAIClient(TransactionCase):
             client.choose_tool("hola")
 
     @patch(_URLOPEN)
+    def test_summarize_rows_strips_markdown(self, urlopen_mock):
+        urlopen_mock.return_value = _chat_message(
+            {"content": "- **Orden S00027**: `Confirmada`\n* Total __$10__"}
+        )
+        client = AzureOpenAIClient(
+            endpoint="https://example.openai.azure.com",
+            api_key="key",
+            deployment="gpt-4o-mini",
+        )
+
+        text = client.summarize_rows(question="estado", tool="order_status", rows=[])
+
+        self.assertEqual(text, "• Orden S00027: Confirmada\n• Total $10")
+
+    @patch(_URLOPEN)
     def test_summarize_rows_returns_content(self, urlopen_mock):
         urlopen_mock.return_value = _chat_message(
             {"content": "• Orden S00027: Confirmada."}

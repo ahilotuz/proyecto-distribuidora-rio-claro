@@ -23,6 +23,7 @@ sudo chown 100:101 odoo.prod.conf
 # Create the database with the add-on (empty, no demo data), then start everything
 docker compose -f compose.prod.yaml run --rm odoo odoo -c /etc/odoo/odoo.conf \
   -d rioclaro -i rioclaro_invoice_inbox --stop-after-init \
+  --db_host=odoo-db --db_user=odoo --db_password="$(grep ^ODOO_DB_PASSWORD= .env | cut -d= -f2-)" \
   --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons
 docker compose -f compose.prod.yaml up -d
 ```
@@ -42,6 +43,7 @@ cd ~/app && git pull && cd deploy
 docker compose -f compose.prod.yaml pull
 docker compose -f compose.prod.yaml run --rm odoo odoo -c /etc/odoo/odoo.conf \
   -d rioclaro -u rioclaro_invoice_inbox --stop-after-init \
+  --db_host=odoo-db --db_user=odoo --db_password="$(grep ^ODOO_DB_PASSWORD= .env | cut -d= -f2-)" \
   --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons
 docker compose -f compose.prod.yaml up -d
 ```
@@ -64,8 +66,15 @@ printf 'RIOCLARO_TELEGRAM_WEBHOOK_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 # add RIOCLARO_TELEGRAM_BOT_TOKEN (and the AOAI/Speech keys) to .env, then:
 docker compose -f compose.prod.yaml up -d
 docker compose -f compose.prod.yaml exec -T -e ACTION=set odoo \
-  odoo shell -c /etc/odoo/odoo.conf -d rioclaro < ../scripts/telegram_webhook.py
+  odoo shell -c /etc/odoo/odoo.conf -d rioclaro --db_host=odoo-db --db_user=odoo \
+  --db_password="$(grep ^ODOO_DB_PASSWORD= .env | cut -d= -f2-)" \
+  --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons \
+  --http-port=0 < ../scripts/telegram_webhook.py
 ```
+
+`odoo shell` and `odoo -u` need the explicit `--db_*` flags (without them they fail
+with a Postgres socket error) and `--http-port=0` so they do not clash with the
+running server.
 
 `ACTION=info` shows Telegram's pending count and last error; `ACTION=delete`
 removes the webhook (rollback to polling: unset the secret and enable

@@ -2,7 +2,10 @@
 
 Usage (production, from deploy/):
     docker compose -f compose.prod.yaml exec -T -e ACTION=set odoo \
-      odoo shell -c /etc/odoo/odoo.conf -d rioclaro < ../scripts/telegram_webhook.py
+      odoo shell -c /etc/odoo/odoo.conf -d rioclaro --db_host=odoo-db \
+      --db_user=odoo --db_password="$ODOO_DB_PASSWORD" --http-port=0 \
+      --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons \
+      < ../scripts/telegram_webhook.py
 
 ACTION is ``set`` (default), ``info`` or ``delete``. Reads the bot token and
 secret from the container environment and never prints them.

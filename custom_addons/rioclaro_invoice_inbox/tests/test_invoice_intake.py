@@ -659,6 +659,41 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
             "RIOCLARO_DOCUMENT_INTELLIGENCE_KEY": "fake-key",
         },
     )
+    @patch.object(AzureDocumentIntelligenceClient, "analyze_invoice")
+    def test_action_extract_invoice_data_skips_logo_image(self, analyze_mock):
+        """A signature image attached before the PDF must not hide the invoice."""
+        record = self.env["rioclaro.invoice.intake"].sudo().create(
+            {"name": "Logo first", "source_message_id": "<extract-logo@example.test>"}
+        )
+        for name, mimetype in (("card.png", "image/png"), ("invoice.pdf", "application/pdf")):
+            self.env["ir.attachment"].create(
+                {
+                    "name": name,
+                    "mimetype": mimetype,
+                    "raw": b"data",
+                    "res_model": "rioclaro.invoice.intake",
+                    "res_id": record.id,
+                }
+            )
+        empty = InvoiceExtraction(
+            supplier_rfc=None, supplier_name=None, invoice_number=None,
+            invoice_date=None, currency_code=None, amount_untaxed=None,
+            amount_tax=None, amount_total=None, confidence_scores={}, lines=(),
+        )
+        analyze_mock.side_effect = [self._fake_extraction(), empty]
+
+        self.assertTrue(record.action_extract_invoice_data())
+
+        self.assertEqual(analyze_mock.call_args_list[0].args[1], "application/pdf")
+        self.assertEqual(record.invoice_number, "INV-100")
+
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_ENDPOINT": "https://example.test",
+            "RIOCLARO_DOCUMENT_INTELLIGENCE_KEY": "fake-key",
+        },
+    )
     @patch.object(
         AzureDocumentIntelligenceClient,
         "analyze_invoice",

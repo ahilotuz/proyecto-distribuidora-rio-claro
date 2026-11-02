@@ -1688,7 +1688,8 @@ contact permissions.
 
 ### Production verification (2026-11-02)
 
-Verified on the production Odoo site after deploying commit `3eb8154`:
+Verified on the production Odoo site after deploying commit `3eb8154`; the
+general catalog-list behavior was retested after deploying `e10e514`:
 
 - An anonymous visitor received a product recommendation for Limpia Pisos
   Multiusos 1L. The assistant correctly said the available catalog text did not
@@ -1699,10 +1700,12 @@ Verified on the production Odoo site after deploying commit `3eb8154`:
   `Espera unos minutos antes de volver a consultar.`
 - After the human operator replied, the visitor's next question received no AI
   response, as intended.
-- Follow-up content gap: the broad question `¿Qué productos tienen?` returned
-  `No encontré resultados para tu consulta.` The follow-up implementation now
-  treats generic catalog-list terms as a request to return published products;
-  repeat this check after deploying that change.
+- Initially, the broad question `¿Qué productos tienen?` returned
+  `No encontré resultados para tu consulta.` After deploying the general catalog
+  search fix (`e10e514`), a fresh anonymous chat returned a list including
+  Limpia Pisos Multiusos 1L, Detergente Multiusos 1kg, Cloro Clorox Original,
+  Harpic Power Ultra, and Cloralex Total Power. The reply included no prices or
+  stock quantities.
 
 ### Local verification
 

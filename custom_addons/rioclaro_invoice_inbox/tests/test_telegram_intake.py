@@ -308,6 +308,33 @@ class TestTelegramIntake(TransactionCase):
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
+    def test_invalid_tool_input_returns_helpful_message(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        updates_mock.return_value = (208, [_text_message(message_id=53)])
+        answer_mock.return_value = {
+            "ok": False,
+            "error": "invalid_input",
+            "tool": "product_margin",
+        }
+
+        self.intake.cron_poll_telegram()
+
+        send_mock.assert_called_once_with(
+            555,
+            "No pude interpretar esa consulta. "
+            "Prueba con un periodo como 7, 30 o AAAA-MM-DD,AAAA-MM-DD.",
+        )
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:53")]
+        )
+        self.assertEqual(audit.outcome, "invalid")
+        self.assertEqual(audit.tool, "product_margin")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
     def test_duplicate_text_message_is_not_run_twice(
         self, answer_mock, _send_mock, updates_mock
     ):

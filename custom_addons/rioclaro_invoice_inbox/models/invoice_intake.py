@@ -534,6 +534,7 @@ class SupplierInvoiceIntake(models.Model):
         outcome = {
             "denied": "denied",
             "invalid_question": "invalid",
+            "invalid_input": "invalid",
             "ai_not_configured": "error",
             "ai_unavailable": "error",
         }.get(result.get("error"), "allowed" if result.get("ok") else "error")
@@ -561,7 +562,10 @@ class SupplierInvoiceIntake(models.Model):
         elif outcome == "denied":
             reply = "No tienes permiso para consultar esos datos."
         elif outcome == "invalid":
-            reply = "La pregunta está vacía o es demasiado larga."
+            reply = (
+                "No pude interpretar esa consulta. "
+                "Prueba con un periodo como 7, 30 o AAAA-MM-DD,AAAA-MM-DD."
+            )
         else:
             reply = "El asistente no está disponible en este momento."
         self._send_telegram_query_reply(

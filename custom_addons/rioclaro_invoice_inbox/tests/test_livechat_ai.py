@@ -1,12 +1,30 @@
 from unittest.mock import patch
 
 from odoo.addons.rioclaro_invoice_inbox.models.assisted_query_ai import AssistedQueryAI
+from odoo.addons.rioclaro_invoice_inbox.models.livechat_ai import (
+    _link_public_products,
+)
 from odoo.tests import TransactionCase, tagged
 from odoo.tools import html2plaintext
 
 
 @tagged("post_install", "-at_install")
 class TestWebsiteLivechatAI(TransactionCase):
+    def test_link_formatter_escapes_content_and_rejects_unsafe_urls(self):
+        reply = _link_public_products(
+            "Producto <script>alert('x')</script>",
+            [
+                {
+                    "name": "Producto <script>alert('x')</script>",
+                    "url": "javascript:alert(1)",
+                }
+            ],
+        )
+
+        self.assertNotIn("<script>", reply)
+        self.assertIn("&lt;script&gt;", reply)
+        self.assertNotIn("href=", reply)
+
     def _visitor_channel(self, enabled=True):
         livechat_type = self.env["im_livechat.channel"].create(
             {"name": "Río Claro AI test", "rioclaro_ai_enabled": enabled}
@@ -45,18 +63,28 @@ class TestWebsiteLivechatAI(TransactionCase):
             return_value={
                 "ok": True,
                 "tool": "public_catalog",
-                "answer": "Tenemos productos publicados en el sitio.",
+                "rows": [
+                    {
+                        "name": "Jabón Líquido Salvo Limón 1.2 L",
+                        "url": "/shop/jabon-liquido-salvo-limon-12-l",
+                    }
+                ],
+                "answer": (
+                    "• Jabón Líquido Salvo Limón 1.2 L: Ideal para lavar trastes."
+                ),
             },
         ) as answer_public:
             channel._message_post_after_hook(visitor_message)
 
         answer_public.assert_called_once_with("¿Qué productos tienen?")
+        posted_bodies = channel.message_ids.mapped("body")
         self.assertTrue(
             any(
-                "Tenemos productos publicados en el sitio."
-                in html2plaintext(body)
-                for body in channel.message_ids.mapped("body")
-            )
+                'href="/shop/jabon-liquido-salvo-limon-12-l"' in body
+                and ">Jabón Líquido Salvo Limón 1.2 L</a>" in body
+                for body in posted_bodies
+            ),
+            posted_bodies,
         )
 
     def test_public_ai_rate_limits_guest_without_calling_model(self):

@@ -1,6 +1,11 @@
+import html
 import logging
+import re
 from datetime import timedelta
 from typing import Any
+from urllib.parse import urlsplit
+
+from markupsafe import Markup
 
 from odoo import _, fields, models
 from odoo.tools import html2plaintext
@@ -8,6 +13,39 @@ from odoo.tools import html2plaintext
 _logger = logging.getLogger(__name__)
 _LIVECHAT_AI_QUERY_LIMIT = 5
 _LIVECHAT_AI_WINDOW_MINUTES = 5
+
+
+def _link_public_products(answer: str, rows: list[dict[str, Any]]) -> str:
+    """Escape a public catalog answer and link exact published product names."""
+    links: dict[str, str] = {}
+    for row in rows:
+        name = row.get("name")
+        url = row.get("url")
+        if not isinstance(name, str) or not name.strip() or not isinstance(url, str):
+            continue
+        parsed_url = urlsplit(url)
+        if parsed_url.scheme not in {"", "http", "https"}:
+            continue
+        path = parsed_url.path
+        if not path.startswith("/shop/") or path == "/shop/":
+            continue
+        escaped_name = html.escape(name)
+        escaped_path = html.escape(path, quote=True)
+        links[escaped_name] = (
+            f'<a href="{escaped_path}" target="_blank" rel="noopener noreferrer">'
+            f"{escaped_name}</a>"
+        )
+
+    safe_answer = html.escape(answer)
+    if links:
+        alternatives = "|".join(
+            re.escape(name) for name in sorted(links, key=len, reverse=True)
+        )
+        product_pattern = re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)")
+        safe_answer = product_pattern.sub(
+            lambda match: links[match.group(0)], safe_answer
+        )
+    return Markup(safe_answer.replace("\n", "<br/>"))
 
 
 class LivechatChannel(models.Model):
@@ -78,6 +116,8 @@ class DiscussChannel(models.Model):
         answer = self.env["rioclaro.assisted.query.ai"].answer_public(question)
         if answer.get("ok"):
             reply = answer["answer"]
+            if answer.get("tool") == "public_catalog":
+                reply = _link_public_products(reply, answer.get("rows", []))
         else:
             _logger.warning(
                 "Public Live Chat AI failed for channel %s, message %s: %s",

@@ -333,7 +333,11 @@ class TestPublicWebsiteQueries(TransactionCase):
         self.assertEqual(
             result["rows"][0]["description"], "Desinfectante para superficies."
         )
-        self.assertEqual(set(result["rows"][0]), {"name", "description"})
+        self.assertEqual(
+            set(result["rows"][0]), {"name", "description", "url"}
+        )
+        self.assertEqual(result["rows"][0]["url"], public_product.website_url)
+        self.assertIn("/shop/", result["rows"][0]["url"])
 
     def test_public_catalog_uses_description_shown_under_product_title(self):
         self.env["product.template"].create(

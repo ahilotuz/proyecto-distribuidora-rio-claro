@@ -1633,3 +1633,73 @@ Verified from the Owner Telegram contact on the VM:
 - All 19 tests passed (0 failures, 0 errors).
 - Verified UI actions: “Create Vendor Bill” creates a draft `account.move` with copied attachments; “View Vendor Bill” opens the same bill.
 - **Último paso completado:** tests verified; ready to push the `feature/invoice-extraction-draft-bill` branch and open a Pull Request.
+
+## 20. Website Live Chat AI: public-content assistant
+
+The `feature/website-livechat-ai` increment connects Odoo Website Live Chat
+(`website_livechat`) to the existing Azure OpenAI agent. It serves anonymous
+website visitors; it does not connect the Discuss inbox or expose Telegram
+contact permissions.
+
+### Scope and safeguards
+
+- The assistant can search only published product names/descriptions and
+  published website pages. It cannot access prices, inventory, customer
+  records, orders, invoices, sales, or purchases.
+- The feature is disabled by default. Enable it only on the Live Chat channel
+  intended for website visitors; human-agent and native-chatbot conversations
+  are left to those participants.
+- Each guest or partner is limited to five visitor questions in a rolling
+  five-minute window across Live Chat conversations. This is not a global Azure
+  spend limit; monitor Azure usage and quotas separately.
+- Azure OpenAI uses the existing `RIOCLARO_AOAI_ENDPOINT`,
+  `RIOCLARO_AOAI_API_KEY`, and `RIOCLARO_AOAI_DEPLOYMENT` settings. No new Azure
+  resource is required. Each request has an eight-second timeout; a complete
+  answer can use two requests, so a response may take up to about 16 seconds.
+  If AI is unavailable, the visitor sees a message asking them to leave their
+  question for a human agent.
+- Useful answers require published product descriptions and useful, published
+  FAQ/help pages. At the time this increment was scoped, the live site had four
+  published products without descriptions and only standard website pages, so
+  add public content before enabling the assistant.
+
+### Enable and verify after deployment
+
+1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance. The module depends on
+   `website_livechat` and `website_sale`; installing/upgrading it installs any
+   missing Odoo dependencies.
+2. In Odoo, open the **Live Chat** app, select the channel used by the website,
+   and open its **Options** tab. Enable **Río Claro AI assistant** and save.
+   Leave other channels disabled unless they are meant to serve public
+   visitors.
+3. Open the public website in a private/incognito browser window and start a
+   new Live Chat conversation. Ask a question answered directly by a published
+   product description or FAQ page, and confirm the reply appears in the chat.
+4. Ask for a price, stock quantity, or private order detail. The assistant
+   must not provide those details. Send six questions within five minutes to
+   verify that the sixth receives the rate-limit message.
+5. Disable **Río Claro AI assistant**, start a fresh conversation, and confirm
+   the AI no longer replies. Human-agent and native-chatbot conversations
+   should not receive competing AI replies.
+
+### Local verification
+
+Run the add-on test suite using the repository's Odoo 20/PostgreSQL Compose
+stack. As with other module tests, use a fresh test database and the complete
+add-ons path. Compose injects the configured database password into the
+one-off Odoo container; the shell passes it to Odoo without printing it:
+
+```bash
+docker compose up -d odoo-db
+docker compose run --rm --no-deps -T odoo sh -c \
+  'exec odoo -c /etc/odoo/odoo.conf -d livechat_ai_test \
+  --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox \
+  --stop-after-init --db_host=odoo-db --db_user=odoo \
+  --db_password="$PASSWORD" \
+  --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons \
+  --http-port=0'
+```
+
+The tests cover published-content filtering, rejection of private tool names,
+the public-only Azure tool allow-list, visitor replies, default-off behavior,
+and per-visitor rate limiting.

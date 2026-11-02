@@ -302,3 +302,97 @@ class TestQueryServiceLanguage(TransactionCase):
 
     def test_spanish_name_matches_with_english_caller(self):
         self.assertEqual(self._names("en_US"), ["Silla de conferencias"])
+
+
+@tagged("post_install", "-at_install")
+class TestPublicWebsiteQueries(TransactionCase):
+    def test_public_catalog_returns_only_published_product_content(self):
+        public_product = self.env["product.template"].create(
+            {
+                "name": "Public Cloro Producto",
+                "is_published": True,
+                "website_description": "<p>Desinfectante para superficies.</p>",
+                "list_price": 1234.0,
+            }
+        )
+        self.env["product.template"].create(
+            {
+                "name": "Private Cloro Producto",
+                "is_published": False,
+                "website_description": "<p>Internal details.</p>",
+            }
+        )
+
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_catalog", "cloro"
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["rows"]), 1)
+        self.assertEqual(result["rows"][0]["name"], public_product.name)
+        self.assertEqual(
+            result["rows"][0]["description"], "Desinfectante para superficies."
+        )
+        self.assertEqual(set(result["rows"][0]), {"name", "description"})
+
+    def test_public_tool_rejects_private_tool_names(self):
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "aggregate_sales", "30"
+        )
+        self.assertEqual(result, {"ok": False, "error": "unknown_tool"})
+
+    def test_public_tool_rejects_oversized_search(self):
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_catalog", "x" * 81
+        )
+        self.assertEqual(result, {"ok": False, "error": "invalid_input"})
+
+    def test_public_faq_returns_only_published_pages(self):
+        website = self.env["website"].search([], limit=1)
+        public_view = self.env["ir.ui.view"].create(
+            {
+                "name": "Public shipping FAQ test",
+                "type": "qweb",
+                "website_id": website.id,
+                "arch_db": (
+                    '<t t-name="website.rioclaro_public_shipping_faq">'
+                    "<div>Los envíos llegan en días hábiles.</div></t>"
+                ),
+            }
+        )
+        self.env["website.page"].create(
+            {
+                "name": "Public shipping FAQ test",
+                "url": "/test-public-shipping-faq",
+                "view_id": public_view.id,
+                "is_published": True,
+            }
+        )
+        private_view = self.env["ir.ui.view"].create(
+            {
+                "name": "Private shipping FAQ test",
+                "type": "qweb",
+                "website_id": website.id,
+                "arch_db": (
+                    '<t t-name="website.rioclaro_private_shipping_faq">'
+                    "<div>Información privada de envíos.</div></t>"
+                ),
+            }
+        )
+        self.env["website.page"].create(
+            {
+                "name": "Private shipping FAQ test",
+                "url": "/test-private-shipping-faq",
+                "view_id": private_view.id,
+                "is_published": False,
+            }
+        )
+
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_faq", "envíos"
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["rows"]), 1)
+        self.assertEqual(result["rows"][0]["title"], "Public shipping FAQ test")
+        self.assertIn("Los envíos llegan", result["rows"][0]["content"])

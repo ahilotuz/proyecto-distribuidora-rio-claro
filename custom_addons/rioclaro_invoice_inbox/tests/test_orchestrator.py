@@ -134,6 +134,27 @@ class TestOrchestrator(TransactionCase):
         self.assertEqual(result["error"], "denied")
         summarize.assert_not_called()
 
+    @patch.object(AzureOpenAIClient, "summarize_rows", return_value="• Información pública")
+    @patch.object(AzureOpenAIClient, "choose_public_tool")
+    @patch.object(QueryService, "run_public_tool")
+    @patch.object(QueryService, "run_tool")
+    def test_public_answer_uses_only_public_query_entry_point(
+        self, private_tool, public_tool, choose_tool, summarize
+    ):
+        choose_tool.return_value = _choice("public_catalog", "cloro")
+        public_tool.return_value = {
+            "ok": True,
+            "rows": [{"name": "Cloro 1L", "description": "Uso doméstico."}],
+        }
+
+        result = self.ai.answer_public("¿Qué cloro venden?")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["answer"], "• Información pública")
+        public_tool.assert_called_once_with("public_catalog", "cloro")
+        private_tool.assert_not_called()
+        summarize.assert_called_once()
+
 
 @tagged("post_install", "-at_install")
 class TestPromptInjection(TransactionCase):
@@ -190,6 +211,39 @@ class TestPromptInjection(TransactionCase):
         self.assertEqual(offered, set(TOOL_REGISTRY))
         self.assertEqual(payload["tool_choice"], "required")
         self.assertIn("untrusted", payload["messages"][0]["content"])
+
+    @patch(_URLOPEN)
+    def test_public_dispatcher_offers_only_public_tools(self, urlopen_mock):
+        response = Mock()
+        response.read.return_value = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "public_faq",
+                                        "arguments": "{\"text\":\"envíos\"}",
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ).encode()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        urlopen_mock.return_value = response
+
+        choice = self._client().choose_public_tool("¿Cuáles son los envíos?")
+
+        self.assertEqual(choice.tool, "public_faq")
+        payload = self._sent_payload(urlopen_mock)
+        offered = {tool["function"]["name"] for tool in payload["tools"]}
+        self.assertEqual(offered, {"public_catalog", "public_faq"})
+        self.assertNotIn("aggregate_sales", offered)
 
     @patch(_URLOPEN)
     def test_injected_tool_name_or_arguments_are_rejected(self, urlopen_mock):

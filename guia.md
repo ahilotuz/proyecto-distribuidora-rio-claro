@@ -1429,12 +1429,11 @@ merged by the assistant). Never print or commit secrets.
 
 ### Behaviours worth knowing
 
-- Rate limit: 5 queries per contact per 5 minutes
-  (`_TELEGRAM_QUERY_RATE_LIMIT`, `_TELEGRAM_QUERY_WINDOW_MINUTES` in
-  `invoice_intake.py`). Reply: "Límite alcanzado: intenta de nuevo en unos
-  minutos." Rate-limited attempts are audited and count toward the window.
-- Answers show literal `**` because replies are sent as plain text (cosmetic,
-  planned for M7).
+- Rate limit: configurable in **Settings > Río Claro Chatbot**. Defaults to 5
+  queries per contact per 5 minutes. Values below 1 are treated as 1.
+  Rate-limited attempts are audited and count toward the window.
+- Telegram answers are plain text. Markdown emphasis and code ticks are
+  removed, and list markers are normalised to `•`.
 - Tools show only the contact's own company; a contact in another company gets
   "No encontré resultados".
 
@@ -1597,6 +1596,15 @@ Lessons learned:
 **LAST_COMPLETED_STEP:** email ingestion verified on the VM (screening Function,
 IMAP, extraction, vendor bill with taxes, negative test).
 **Next:** rest of M7 (correlation ID and latency per query, kill switch, budget alert, spend cap, incident owner).
+
+### Query date periods
+
+The read-only sales, purchase, invoice, top-products, and margin tools accept
+an empty period (last 30 days), a day count, an explicit
+`YYYY-MM-DD,YYYY-MM-DD` range, or common natural periods: `hoy`, `ayer`,
+`esta semana`, `semana pasada`, `este mes`, `mes pasado`, `este año`, and
+`últimos N días`. Natural periods use the `America/Mexico_City` business date.
+For example, `este mes` means the first day of the current month through today.
 
 ## 17. Draft vendor bill feature verification
 

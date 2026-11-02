@@ -114,8 +114,10 @@ class QueryService(models.AbstractModel):
             token_domains = [
                 [
                     "|",
+                    "|",
                     ("name", "ilike", token),
                     ("website_description", "ilike", token),
+                    ("description_ecommerce", "ilike", token),
                 ]
                 for token in tokens
             ]
@@ -130,7 +132,14 @@ class QueryService(models.AbstractModel):
         )
         matches = []
         for product in products:
-            description = html2plaintext(product.website_description or "").strip()
+            description = " ".join(
+                part
+                for part in (
+                    html2plaintext(product.description_ecommerce or "").strip(),
+                    html2plaintext(product.website_description or "").strip(),
+                )
+                if part
+            )
             searchable = f"{product.name} {description}".lower()
             score = sum(token in searchable for token in tokens)
             if tokens and not score:

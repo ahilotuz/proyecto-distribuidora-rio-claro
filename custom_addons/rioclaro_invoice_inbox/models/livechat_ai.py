@@ -44,9 +44,11 @@ class DiscussChannel(models.Model):
         active_member_ids = set(channel.channel_member_ids.ids)
         if any(
             history.member_id.id in active_member_ids
-            and history.livechat_member_type in ("agent", "bot")
+            and history.livechat_member_type == "bot"
             for history in channel.livechat_channel_member_history_ids
         ):
+            return result
+        if channel._livechat_agent_has_replied():
             return result
 
         author_history = channel.livechat_channel_member_history_ids.filtered(
@@ -95,6 +97,38 @@ class DiscussChannel(models.Model):
             subtype_xmlid="mail.mt_comment",
         )
         return result
+
+    def _livechat_agent_has_replied(self) -> bool:
+        """Return whether a human agent wrote after the visitor's first message.
+
+        Odoo assigns an operator when the chat starts and posts the welcome
+        message as that operator, so only agent comments that follow the first
+        visitor comment count as a real human reply.
+        """
+        agent_partners = self.livechat_channel_member_history_ids.filtered(
+            lambda history: history.livechat_member_type == "agent"
+        ).partner_id
+        if not agent_partners:
+            return False
+        comments = self.env["mail.message"].sudo().search(
+            [
+                ("model", "=", "discuss.channel"),
+                ("res_id", "=", self.id),
+                ("message_type", "=", "comment"),
+            ],
+            order="id",
+        )
+        first_visitor_message = comments.filtered(
+            lambda comment: comment.author_id not in agent_partners
+            and comment.author_id != self.env.company.partner_id
+        )[:1]
+        if not first_visitor_message:
+            return False
+        return any(
+            comment.id > first_visitor_message.id
+            and comment.author_id in agent_partners
+            for comment in comments
+        )
 
     def _is_livechat_ai_rate_limited(self, message: models.Model) -> bool:
         """Allow at most five visitor questions in a rolling five-minute window."""

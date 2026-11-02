@@ -1700,9 +1700,9 @@ Verified on the production Odoo site after deploying commit `3eb8154`:
 - After the human operator replied, the visitor's next question received no AI
   response, as intended.
 - Follow-up content gap: the broad question `¿Qué productos tienen?` returned
-  `No encontré resultados para tu consulta.` The current catalog search works
-  better with a specific product or category; add a follow-up improvement for
-  general catalog-list questions.
+  `No encontré resultados para tu consulta.` The follow-up implementation now
+  treats generic catalog-list terms as a request to return published products;
+  repeat this check after deploying that change.
 
 ### Local verification
 

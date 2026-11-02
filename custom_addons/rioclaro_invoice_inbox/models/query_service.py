@@ -6,6 +6,7 @@ language model) pass only a small free-text argument, never a partner, domain
 or field list. Tools return a fixed set of fields.
 """
 
+import re
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
@@ -21,6 +22,28 @@ MAX_RESULTS = 5
 MAX_TEXT_LENGTH = 80
 MAX_CANDIDATES = 5
 MIN_TOKEN_LENGTH = 3
+_PUBLIC_CATALOG_LIST_TERMS = frozenset(
+    {
+        "catalogo",
+        "catálogo",
+        "disponible",
+        "disponibles",
+        "hay",
+        "lista",
+        "listar",
+        "listado",
+        "ofrece",
+        "ofrecen",
+        "producto",
+        "productos",
+        "que",
+        "qué",
+        "tiene",
+        "tienen",
+        "venden",
+        "vende",
+    }
+)
 _STOPWORDS = frozenset(
     {"para", "con", "sin", "del", "los", "las", "una", "uno", "por", "que", "de", "el", "la"}
 )
@@ -108,7 +131,12 @@ class QueryService(models.AbstractModel):
     @api.model
     def _public_catalog(self, text: str) -> list[dict[str, Any]]:
         """Find published products using only names and public website descriptions."""
-        tokens = self._search_tokens(text)
+        normalized_text = re.sub(r"[^\w\s]", " ", text.lower())
+        tokens = [
+            token
+            for token in self._search_tokens(normalized_text)
+            if token not in _PUBLIC_CATALOG_LIST_TERMS
+        ]
         domain = [("is_published", "=", True)]
         if tokens:
             token_domains = [

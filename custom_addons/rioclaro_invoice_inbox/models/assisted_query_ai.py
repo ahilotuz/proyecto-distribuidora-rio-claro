@@ -114,8 +114,10 @@ class AzureOpenAIClient:
             {
                 "public_catalog": (
                     "Busca productos publicados en el sitio web por nombre o "
-                    "descripción pública. No hay acceso a precio, inventario ni datos "
-                    "de clientes. Texto: palabras clave breves."
+                    "descripción pública. Para una solicitud general de lista o "
+                    "catálogo, busca todos los productos (texto vacío o términos "
+                    "genéricos). No hay acceso a precio, inventario ni datos de "
+                    "clientes. Texto: palabras clave breves."
                 ),
                 "public_faq": (
                     "Busca contenido relevante en páginas del sitio web que estén "

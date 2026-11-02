@@ -1647,8 +1647,12 @@ contact permissions.
   published website pages. It cannot access prices, inventory, customer
   records, orders, invoices, sales, or purchases.
 - The feature is disabled by default. Enable it only on the Live Chat channel
-  intended for website visitors; human-agent and native-chatbot conversations
-  are left to those participants.
+  intended for website visitors. Native-chatbot conversations are left to the
+  chatbot. Odoo shows the chat bubble and starts a session only while at least
+  one human operator is online on the channel, so add and keep an operator
+  online. The AI answers until that operator writes a message after the
+  visitor's first message (the automatic welcome message does not count); after
+  that the AI stays silent.
 - Each guest or partner is limited to five visitor questions in a rolling
   five-minute window across Live Chat conversations. This is not a global Azure
   spend limit; monitor Azure usage and quotas separately.
@@ -1679,8 +1683,8 @@ contact permissions.
    must not provide those details. Send six questions within five minutes to
    verify that the sixth receives the rate-limit message.
 5. Disable **Río Claro AI assistant**, start a fresh conversation, and confirm
-   the AI no longer replies. Human-agent and native-chatbot conversations
-   should not receive competing AI replies.
+   the AI no longer replies. Native-chatbot conversations, and conversations
+   where a human agent has replied, should not receive competing AI replies.
 
 ### Local verification
 

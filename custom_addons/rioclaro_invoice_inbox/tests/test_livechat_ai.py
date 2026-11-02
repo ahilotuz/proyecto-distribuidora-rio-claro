@@ -93,6 +93,54 @@ class TestWebsiteLivechatAI(TransactionCase):
             )
         )
 
+    def _add_agent(self, channel):
+        agent_partner = self.env.ref("base.partner_admin")
+        member = channel._add_members(
+            partners=agent_partner, post_joined_message=False
+        )
+        member.livechat_member_type = "agent"
+        return agent_partner
+
+    def _post(self, channel, body, *, guest=None, partner=None):
+        values = {
+            "model": "discuss.channel",
+            "res_id": channel.id,
+            "body": f"<p>{body}</p>",
+            "message_type": "comment",
+            "author_id": partner.id if partner else False,
+        }
+        if guest:
+            values["author_guest_id"] = guest.id
+        return self.env["mail.message"].create(values)
+
+    def test_public_ai_answers_when_agent_only_sent_welcome_message(self):
+        channel, guest = self._visitor_channel()
+        agent_partner = self._add_agent(channel)
+        self._post(channel, "Hola, ¿cómo puedo ayudarle?", partner=agent_partner)
+        visitor_message = self._post(channel, "¿Qué productos tienen?", guest=guest)
+
+        with patch.object(
+            AssistedQueryAI,
+            "answer_public",
+            return_value={"ok": True, "tool": "public_catalog", "answer": "Respuesta IA"},
+        ) as answer_public:
+            channel._message_post_after_hook(visitor_message)
+
+        answer_public.assert_called_once()
+
+    def test_public_ai_stays_silent_after_agent_replies(self):
+        channel, guest = self._visitor_channel()
+        agent_partner = self._add_agent(channel)
+        self._post(channel, "Hola, ¿cómo puedo ayudarle?", partner=agent_partner)
+        self._post(channel, "¿Qué productos tienen?", guest=guest)
+        self._post(channel, "Yo te ayudo.", partner=agent_partner)
+        visitor_message = self._post(channel, "¿Y el cloro?", guest=guest)
+
+        with patch.object(AssistedQueryAI, "answer_public") as answer_public:
+            channel._message_post_after_hook(visitor_message)
+
+        answer_public.assert_not_called()
+
     def test_public_ai_is_off_by_default(self):
         channel = self.env["im_livechat.channel"].create(
             {"name": "Río Claro AI disabled test"}

@@ -11,3 +11,4 @@ from . import speech_client
 from . import invoice_intake_line
 from . import telegram_update
 from . import res_config_settings
+from . import livechat_ai

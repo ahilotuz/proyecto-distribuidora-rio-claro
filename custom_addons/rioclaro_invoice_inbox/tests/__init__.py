@@ -9,3 +9,4 @@ from . import test_date_range
 from . import test_query_aggregation
 from . import test_orchestrator
 from . import test_telegram_webhook
+from . import test_livechat_ai

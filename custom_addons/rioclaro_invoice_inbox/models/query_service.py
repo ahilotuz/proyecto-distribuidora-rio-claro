@@ -11,6 +11,7 @@ from datetime import timedelta
 from typing import Any
 
 from odoo import api, fields, models
+from odoo.tools import html2plaintext
 
 from .date_range import DateRange, parse_date_range
 
@@ -84,6 +85,96 @@ class QueryService(models.AbstractModel):
         except ValueError:
             return {"ok": False, "error": "invalid_input"}
         return {"ok": True, "tool": tool, "rows": rows}
+
+    @api.model
+    def run_public_tool(self, tool: str, text: str = "") -> dict[str, Any]:
+        """Run a query that returns only information already published publicly.
+
+        This entry point is for anonymous website visitors. It deliberately
+        does not expose inventory, prices, sales, invoices, or customer data.
+        """
+        clean_text = (text or "").strip()
+        if len(clean_text) > MAX_TEXT_LENGTH:
+            return {"ok": False, "error": "invalid_input"}
+        public_methods = {
+            "public_catalog": self._public_catalog,
+            "public_faq": self._public_faq,
+        }
+        method = public_methods.get(tool)
+        if not method:
+            return {"ok": False, "error": "unknown_tool"}
+        return {"ok": True, "tool": tool, "rows": method(clean_text)}
+
+    @api.model
+    def _public_catalog(self, text: str) -> list[dict[str, Any]]:
+        """Find published products using only names and public website descriptions."""
+        tokens = self._search_tokens(text)
+        domain = [("is_published", "=", True)]
+        if tokens:
+            token_domains = [
+                [
+                    "|",
+                    ("name", "ilike", token),
+                    ("website_description", "ilike", token),
+                ]
+                for token in tokens
+            ]
+            match_domain = token_domains[0]
+            for token_domain in token_domains[1:]:
+                match_domain = ["|"] + match_domain + token_domain
+            domain += match_domain
+        products = self.env["product.template"].sudo().search(
+            domain,
+            order="name, id",
+            limit=MAX_CANDIDATES * 5,
+        )
+        matches = []
+        for product in products:
+            description = html2plaintext(product.website_description or "").strip()
+            searchable = f"{product.name} {description}".lower()
+            score = sum(token in searchable for token in tokens)
+            if tokens and not score:
+                continue
+            matches.append(
+                (
+                    -score,
+                    product.id,
+                    {
+                        "name": product.name,
+                        "description": description[:600],
+                    },
+                )
+            )
+        return [row for _, _, row in sorted(matches)[:MAX_CANDIDATES]]
+
+    @api.model
+    def _public_faq(self, text: str) -> list[dict[str, Any]]:
+        """Search published website pages and return their public text only."""
+        pages = self.env["website.page"].sudo().search(
+            [("is_published", "=", True)],
+            order="name, id",
+            limit=100,
+        )
+        tokens = self._search_tokens(text)
+        matches = []
+        for page in pages:
+            content = html2plaintext(page.view_id.arch_db or "").strip()
+            searchable = f"{page.name} {content}".lower()
+            score = sum(token in searchable for token in tokens)
+            if tokens and not score:
+                continue
+            matches.append(
+                (
+                    -score,
+                    page.id,
+                    {
+                        "title": page.name,
+                        "url": page.url,
+                        "content": content[:1200],
+                    },
+                )
+            )
+        return [row for _, _, row in sorted(matches)[:MAX_CANDIDATES]]
 
     @api.model
     def _with_query_language(self) -> "QueryService":

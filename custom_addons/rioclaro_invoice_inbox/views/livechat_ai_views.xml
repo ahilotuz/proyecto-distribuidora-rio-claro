@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="im_livechat_channel_view_form_rioclaro_ai" model="ir.ui.view">
+        <field name="name">im_livechat.channel.form.rioclaro.ai</field>
+        <field name="model">im_livechat.channel</field>
+        <field name="inherit_id" ref="im_livechat.im_livechat_channel_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='options']//field[@name='default_message']"
+                   position="after">
+                <field name="rioclaro_ai_enabled"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

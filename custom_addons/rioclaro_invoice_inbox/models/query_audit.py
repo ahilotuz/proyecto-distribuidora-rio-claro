@@ -2,7 +2,7 @@
 
 from odoo import api, fields, models
 
-from .query_service import TOOL_REGISTRY
+from .query_service import PUBLIC_TOOL_NAMES, TOOL_REGISTRY
 
 
 class AssistedQueryAudit(models.Model):
@@ -27,7 +27,10 @@ class AssistedQueryAudit(models.Model):
         index=True,
     )
     tool = fields.Selection(
-        [(name, name.replace("_", " ").title()) for name in TOOL_REGISTRY],
+        [
+            (name, name.replace("_", " ").title())
+            for name in (*TOOL_REGISTRY, *sorted(PUBLIC_TOOL_NAMES))
+        ],
         index=True,
     )
     outcome = fields.Selection(
@@ -68,6 +71,10 @@ class AssistedQueryAudit(models.Model):
                 "contact_id": contact.id if contact else False,
                 "company_id": contact.company_id.id if contact else False,
                 "input_type": input_type if input_type in {"text", "voice"} else "text",
-                "tool": tool if tool in TOOL_REGISTRY else False,
+                "tool": (
+                    tool
+                    if tool in TOOL_REGISTRY or tool in PUBLIC_TOOL_NAMES
+                    else False
+                ),
             }
         )

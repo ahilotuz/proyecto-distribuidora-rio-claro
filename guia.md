@@ -1074,6 +1074,8 @@ WhatsApp remains deferred.
   never sent to the chat model; only authorized rows are sent to Azure OpenAI;
   every request is logged (who, tool, allowed/denied); rate limit per
   contact; minimal service user with explicit domains instead of full `sudo`.
+  Later, public published-product/website queries were opened to all active
+  Telegram contacts; private data remains permission-gated.
 - Steps: (1) ACL model and permissions, (2) read-only query tools without AI,
   (3) Azure OpenAI tool-picker, (4) Telegram text wiring with log,
   (5) voice with Azure AI Speech, (6) docs and PR.
@@ -1189,8 +1191,9 @@ the Speech settings in `.env`.
 - Telegram parser now accepts plain text only from private chats; group-chat
   messages are ignored. Existing invoice-file intake remains supported.
 - Polling routes private text through `rioclaro.assisted.query.ai.answer`.
-  Unknown/inactive contacts and contacts without read-query permissions are
-  denied before calling Azure OpenAI.
+  Unknown and inactive contacts are denied before calling Azure OpenAI. Active
+  contacts without private-query permissions can use only published website
+  content (added in Milestone 21 below).
 - Added admin-only `rioclaro.assisted.query.audit` model and menu
   **Invoice Intake → Assisted Query Audit**. It stores sender ID, contact,
   company, selected tool, outcome, Telegram message ID, and timestamp; it
@@ -1729,3 +1732,38 @@ docker compose run --rm --no-deps -T odoo sh -c \
 The tests cover published-content filtering, rejection of private tool names,
 the public-only Azure tool allow-list, visitor replies, default-off behavior,
 and per-visitor rate limiting.
+
+## 21. Telegram public product recommendations
+
+Telegram text and voice questions can now use the same published product
+catalog and FAQ content as Website Live Chat. For example, an active Telegram
+contact can ask `¿Qué producto me sirve para lavar trastes?`; the catalog
+search matches published product names and public website descriptions, such
+as product descriptions mentioning dishwashing.
+
+- Any **active Telegram contact** may ask questions answered from published
+  product or website content. The bot still denies unknown and inactive IDs.
+- Private business tools are offered only when the contact has the matching
+  permission enabled on its Odoo Telegram contact. The query service checks
+  that permission again and retains its existing partner and company scopes.
+- Public recommendations include only published names and website
+  descriptions; they do not include prices, stock, sales, invoices, or
+  customer data. Unpublished products remain excluded.
+- Existing Telegram query auditing and per-contact rate limits also apply to
+  public questions.
+
+### Verify after deployment
+
+1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance.
+2. In Telegram, ask `¿Qué producto me sirve para lavar trastes?` from an active
+   contact. Confirm the reply recommends a product whose published
+   description matches the use, such as Salvo, without disclosing stock or
+   prices.
+3. Use a second active contact with all private query permissions disabled.
+   Confirm it can ask the same public question but cannot retrieve private
+   sales, inventory, invoice, or order data.
+4. From a contact with a private permission granted in Odoo, ask a public
+   catalog question and a question covered by that permission. Confirm both
+   work; then revoke the private permission and confirm that private query is
+   denied while public recommendations still work.
+5. Confirm an unknown or inactive Telegram ID remains denied.

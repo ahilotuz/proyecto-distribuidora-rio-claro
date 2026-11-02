@@ -114,6 +114,9 @@ class TestAssistedQueryAI(TransactionCase):
     def setUp(self):
         super().setUp()
         self.ai = self.env["rioclaro.assisted.query.ai"]
+        self.env["rioclaro.telegram.contact"].create(
+            {"name": "Internal test contact", "telegram_user_id": "1", "role": "internal"}
+        )
 
     @patch.dict("os.environ", {}, clear=True)
     def test_missing_env_returns_not_configured(self):
@@ -163,6 +166,6 @@ class TestAssistedQueryAI(TransactionCase):
         choose_tool_mock.return_value = type("Choice", (), {"tool": "recent_sales", "text": ""})()
         run_tool_mock.return_value = {"ok": False, "error": "denied"}
 
-        result = self.ai.answer(999, "ventas")
+        result = self.ai.answer(1, "ventas")
 
         self.assertEqual(result, {"ok": False, "error": "denied", "tool": "recent_sales"})

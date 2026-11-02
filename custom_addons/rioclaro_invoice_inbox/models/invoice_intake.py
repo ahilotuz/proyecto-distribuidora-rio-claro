@@ -11,7 +11,6 @@ from .document_intelligence import (
     AzureDocumentIntelligenceClient,
     DocumentIntelligenceError,
 )
-from .query_service import TOOL_REGISTRY
 from .speech_client import AzureSpeechClient, SpeechError
 from .telegram_client import TelegramClient, TelegramError, TelegramMessage
 
@@ -435,8 +434,7 @@ class SupplierInvoiceIntake(models.Model):
 
         contacts = self.env["rioclaro.telegram.contact"]
         contact = contacts.get_active_contact(message.sender_id)
-        query_permissions = [permission for permission, _ in TOOL_REGISTRY.values()]
-        if not contact or not any(contact[permission] for permission in query_permissions):
+        if not contact:
             audit_model.log_request(
                 telegram_user_id=message.sender_id,
                 source_message_id=source_id,

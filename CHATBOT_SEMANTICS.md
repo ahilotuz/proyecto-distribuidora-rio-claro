@@ -46,10 +46,15 @@ by company and, for external roles, by partner.
 
 Notes:
 
+- Every active Telegram contact may use `public_catalog` and `public_faq`,
+  which expose only published product and website content. These public tools
+  do not need a private-data permission.
 - Customers and suppliers get **no inventory access** by default, matching the
   current `ROLE_DEFAULT_PERMISSIONS`. Opening stock to customers is an OPEN
   decision (see section 5).
-- Unknown, inactive or revoked contacts are denied before any Azure call.
+- Unknown and inactive contacts are denied before any Azure call. Revoking a
+  private permission removes that private tool while leaving public-content
+  queries available to an active contact.
 - Fields returned are a fixed projection; no bank details, internal notes,
   attachments or personal data beyond partner display name.
 
@@ -98,14 +103,16 @@ If you agree with all proposals, approve and merge as is.
 
 ## 6. `sudo()` audit of `rioclaro.query.service` (M3)
 
-Every `sudo()` in the query service runs only after `run_tool` has resolved an
-active contact and checked the tool's permission flag, and each search applies
-`_company_scope` (and `_partner_scope` for sales, purchases, invoices and
-orders). Product tools use the company scope plus a storable-product filter
-and the warehouse lookup is restricted to the contact's company. No tool
-accepts a model, domain, field list or partner from the caller. Tests in
-`test_query_service.py` and `test_query_aggregation.py` cover cross-partner
-and cross-company isolation.
+Private `run_tool` calls resolve an active contact and check the tool's
+permission flag; each private search applies `_company_scope` (and
+`_partner_scope` for sales, purchases, invoices and orders). Product tools use
+the company scope plus a storable-product filter and the warehouse lookup is
+restricted to the contact's company. Public `run_public_tool` calls are
+intentionally independent of a Telegram contact because they return only
+published website products/pages and are also used by anonymous Live Chat.
+No tool accepts a model, domain, field list or partner from the caller. Tests
+in `test_query_service.py` and `test_query_aggregation.py` cover public
+filtering and private cross-partner/cross-company isolation.
 
 ## 7. Aggregation tool argument (M3)
 

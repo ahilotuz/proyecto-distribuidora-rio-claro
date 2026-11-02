@@ -356,6 +356,25 @@ class TestPublicWebsiteQueries(TransactionCase):
         self.assertEqual(result["rows"][0]["name"], "Limpia Pisos Test")
         self.assertIn("lavanda", result["rows"][0]["description"])
 
+    def test_public_catalog_matches_telegram_dishwashing_recommendation(self):
+        product = self.env["product.template"].create(
+            {
+                "name": "Jabón Líquido para Trastes Salvo Limón, 1.2 L",
+                "is_published": True,
+                "description_ecommerce": (
+                    "<p>Ideal para lavar trastes y remover grasa.</p>"
+                ),
+            }
+        )
+
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_catalog", "¿Qué producto me sirve para lavar trastes?"
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual([row["name"] for row in result["rows"]], [product.name])
+        self.assertIn("lavar trastes", result["rows"][0]["description"])
+
     def test_public_catalog_general_list_returns_published_products(self):
         public_products = self.env["product.template"].create(
             [

@@ -13,13 +13,27 @@ from urllib.request import Request, urlopen
 
 from odoo import api, models
 
-from .query_service import TOOL_REGISTRY
+from .query_service import PUBLIC_TOOL_NAMES, TOOL_REGISTRY
 
 _CHAT_API_VERSION = "2024-06-01"
 _MAX_QUESTION_LENGTH = 280
 MAX_TOOL_CALLS = 2
 _MAX_CELL_LENGTH = 120
 NO_RESULTS_MESSAGE = "No encontré resultados para tu consulta."
+_PUBLIC_TOOL_DESCRIPTIONS = {
+    "public_catalog": (
+        "Busca productos publicados en el sitio web por nombre o "
+        "descripción pública. Para una solicitud general de lista o "
+        "catálogo, busca todos los productos (texto vacío o términos "
+        "genéricos). No hay acceso a precio, inventario ni datos de "
+        "clientes. Texto: palabras clave breves."
+    ),
+    "public_faq": (
+        "Busca contenido relevante en páginas del sitio web que estén "
+        "publicadas. No respondas desde conocimiento externo. Texto: "
+        "palabras clave breves."
+    ),
+}
 
 
 def sanitize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -99,33 +113,34 @@ class AzureOpenAIClient:
         self._deployment = deployment.strip()
         self._request_timeout = request_timeout
 
-    def choose_tool(self, question: str) -> ToolChoice:
-        """Select exactly one fixed tool and a short text argument."""
-        descriptions = {
-            name: self._tool_description(name)
-            for name in TOOL_REGISTRY
-        }
+    def choose_tool(
+        self, question: str, allowed_tools: set[str] | None = None
+    ) -> ToolChoice:
+        """Select one public tool and only the private tools the contact may use.
+
+        ``allowed_tools=None`` retains the private-only tool picker used by
+        existing internal callers. Telegram passes an explicit permission-
+        filtered set, which also makes public website content available.
+        """
+        if allowed_tools is None:
+            descriptions = {
+                name: self._tool_description(name)
+                for name in TOOL_REGISTRY
+            }
+        else:
+            descriptions = {
+                **_PUBLIC_TOOL_DESCRIPTIONS,
+                **{
+                    name: self._tool_description(name)
+                    for name in allowed_tools
+                    if name in TOOL_REGISTRY
+                },
+            }
         return self._choose_from_tools(question, descriptions)
 
     def choose_public_tool(self, question: str) -> ToolChoice:
         """Select only from tools that expose published website content."""
-        return self._choose_from_tools(
-            question,
-            {
-                "public_catalog": (
-                    "Busca productos publicados en el sitio web por nombre o "
-                    "descripción pública. Para una solicitud general de lista o "
-                    "catálogo, busca todos los productos (texto vacío o términos "
-                    "genéricos). No hay acceso a precio, inventario ni datos de "
-                    "clientes. Texto: palabras clave breves."
-                ),
-                "public_faq": (
-                    "Busca contenido relevante en páginas del sitio web que estén "
-                    "publicadas. No respondas desde conocimiento externo. Texto: "
-                    "palabras clave breves."
-                ),
-            },
-        )
+        return self._choose_from_tools(question, _PUBLIC_TOOL_DESCRIPTIONS)
 
     def _choose_from_tools(
         self, question: str, descriptions: dict[str, str]
@@ -306,10 +321,21 @@ class AssistedQueryAI(models.AbstractModel):
 
     @api.model
     def answer(self, telegram_user_id: int | str, question: str) -> dict[str, Any]:
-        """Answer one text question by selecting exactly one fixed query tool."""
+        """Answer a question with public content and explicitly permitted tools."""
         clean_question = (question or "").strip()
         if not clean_question or len(clean_question) > _MAX_QUESTION_LENGTH:
             return {"ok": False, "error": "invalid_question"}
+
+        contact = self.env["rioclaro.telegram.contact"].get_active_contact(
+            telegram_user_id
+        )
+        if not contact:
+            return {"ok": False, "error": "denied"}
+        allowed_tools = {
+            tool
+            for tool, (permission, _) in TOOL_REGISTRY.items()
+            if contact[permission]
+        }
 
         endpoint = os.environ.get("RIOCLARO_AOAI_ENDPOINT", "")
         api_key = os.environ.get("RIOCLARO_AOAI_API_KEY", "")
@@ -323,13 +349,16 @@ class AssistedQueryAI(models.AbstractModel):
                 api_key=api_key,
                 deployment=deployment,
             )
-            choice = client.choose_tool(clean_question)
+            choice = client.choose_tool(clean_question, allowed_tools=allowed_tools)
         except (ValueError, AzureOpenAIError):
             return {"ok": False, "error": "ai_unavailable"}
 
         service = self.env["rioclaro.query.service"]
         tool = choice.tool
-        result = service.run_tool(telegram_user_id, tool, choice.text)
+        if tool in PUBLIC_TOOL_NAMES:
+            result = service.run_public_tool(tool, choice.text)
+        else:
+            result = service.run_tool(telegram_user_id, tool, choice.text)
         if not result.get("ok"):
             return {"ok": False, "error": result.get("error", "query_failed"), "tool": tool}
 

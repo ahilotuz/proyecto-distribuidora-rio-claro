@@ -9,7 +9,10 @@ from odoo.addons.rioclaro_invoice_inbox.models.assisted_query_ai import (
     AzureOpenAIClient,
     sanitize_rows,
 )
-from odoo.addons.rioclaro_invoice_inbox.models.query_service import QueryService
+from odoo.addons.rioclaro_invoice_inbox.models.query_service import (
+    TOOL_REGISTRY,
+    QueryService,
+)
 from odoo.tests import BaseCase, TransactionCase, tagged
 
 _ENV = {
@@ -40,6 +43,9 @@ class TestOrchestrator(TransactionCase):
     def setUp(self):
         super().setUp()
         self.ai = self.env["rioclaro.assisted.query.ai"]
+        self.env["rioclaro.telegram.contact"].create(
+            {"name": "Internal test contact", "telegram_user_id": "1", "role": "internal"}
+        )
 
     @patch.object(AzureOpenAIClient, "summarize_rows", return_value="• 12 unidades")
     @patch.object(AzureOpenAIClient, "choose_tool")
@@ -155,6 +161,53 @@ class TestOrchestrator(TransactionCase):
         private_tool.assert_not_called()
         summarize.assert_called_once()
 
+    @patch.object(AzureOpenAIClient, "summarize_rows", return_value="• Salvo Limón")
+    @patch.object(AzureOpenAIClient, "choose_tool")
+    @patch.object(QueryService, "run_public_tool")
+    @patch.object(QueryService, "run_tool")
+    def test_active_contact_without_private_permissions_can_get_public_recommendations(
+        self, private_tool, public_tool, choose_tool, summarize
+    ):
+        permission_flags = {
+            permission: False for permission, _ in TOOL_REGISTRY.values()
+        }
+        self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Public Telegram contact",
+                "telegram_user_id": "2",
+                "role": "internal",
+                **permission_flags,
+            }
+        )
+        question = "¿Qué producto me sirve para lavar trastes?"
+        choose_tool.return_value = _choice("public_catalog", "lavar trastes")
+        public_tool.return_value = {
+            "ok": True,
+            "rows": [
+                {
+                    "name": "Jabón Líquido para Trastes Salvo Limón, 1.2 L",
+                    "description": "Ideal para lavar trastes y remover grasa.",
+                    "url": "/shop/salvo",
+                }
+            ],
+        }
+
+        result = self.ai.answer(2, question)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["tool"], "public_catalog")
+        public_tool.assert_called_once_with("public_catalog", "lavar trastes")
+        private_tool.assert_not_called()
+        choose_tool.assert_called_once_with(question, allowed_tools=set())
+        summarize.assert_called_once()
+
+    @patch.object(AzureOpenAIClient, "choose_tool")
+    def test_unknown_telegram_contact_is_denied_before_ai(self, choose_tool):
+        result = self.ai.answer(999, "ventas")
+
+        self.assertEqual(result, {"ok": False, "error": "denied"})
+        choose_tool.assert_not_called()
+
 
 @tagged("post_install", "-at_install")
 class TestPromptInjection(TransactionCase):
@@ -243,6 +296,46 @@ class TestPromptInjection(TransactionCase):
         payload = self._sent_payload(urlopen_mock)
         offered = {tool["function"]["name"] for tool in payload["tools"]}
         self.assertEqual(offered, {"public_catalog", "public_faq"})
+        self.assertNotIn("aggregate_sales", offered)
+
+    @patch(_URLOPEN)
+    def test_telegram_dispatcher_offers_public_and_only_granted_private_tools(
+        self, urlopen_mock
+    ):
+        response = Mock()
+        response.read.return_value = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": "public_catalog",
+                                        "arguments": '{"text":"lavar trastes"}',
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        ).encode()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        urlopen_mock.return_value = response
+
+        choice = self._client().choose_tool(
+            "¿Qué producto me sirve para lavar trastes?",
+            allowed_tools={"recent_sales"},
+        )
+
+        self.assertEqual(choice.tool, "public_catalog")
+        payload = self._sent_payload(urlopen_mock)
+        offered = {tool["function"]["name"] for tool in payload["tools"]}
+        self.assertEqual(
+            offered, {"public_catalog", "public_faq", "recent_sales"}
+        )
         self.assertNotIn("aggregate_sales", offered)
 
     @patch(_URLOPEN)

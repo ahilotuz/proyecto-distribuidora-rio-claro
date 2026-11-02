@@ -38,8 +38,8 @@ ROLE_DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
 class TelegramContact(models.Model):
     """A Telegram user authorized to talk to the bot, with explicit permissions.
 
-    Access is denied by default: a Telegram ID without an active contact, or a
-    contact without the requested permission, is never served.
+    Active contacts may query published website content. Private business data
+    requires the corresponding permission; inactive and unknown IDs are denied.
     """
 
     _name = "rioclaro.telegram.contact"

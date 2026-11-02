@@ -13,6 +13,7 @@ from odoo.addons.rioclaro_invoice_inbox.models.telegram_client import (
     TelegramFile,
     TelegramMessage,
 )
+from odoo.addons.rioclaro_invoice_inbox.models.query_service import TOOL_REGISTRY
 from odoo.tests import TransactionCase, tagged
 
 
@@ -243,6 +244,53 @@ class TestTelegramIntake(TransactionCase):
         )
         self.assertEqual(audit.outcome, "denied")
         self.assertEqual(audit.telegram_user_id, "999")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    def test_active_contact_without_private_permissions_can_ask_public_questions(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        permission_flags = {
+            permission: False for permission, _ in TOOL_REGISTRY.values()
+        }
+        self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Public Telegram contact",
+                "telegram_user_id": "778",
+                "role": "internal",
+                **permission_flags,
+            }
+        )
+        updates_mock.return_value = (
+            206,
+            [
+                _text_message(
+                    message_id=52,
+                    sender_id=778,
+                    text="¿Qué producto me sirve para lavar trastes?",
+                )
+            ],
+        )
+        answer_mock.return_value = {
+            "ok": True,
+            "tool": "public_catalog",
+            "rows": [],
+            "answer": "No encontré resultados.",
+        }
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_called_once_with(
+            778, "¿Qué producto me sirve para lavar trastes?"
+        )
+        send_mock.assert_called_once_with(555, "No encontré resultados.")
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:52")]
+        )
+        self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.tool, "public_catalog")
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")

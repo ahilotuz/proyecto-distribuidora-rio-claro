@@ -1,9 +1,10 @@
-"""Read-only, permission-scoped query tools for the assisted chatbot.
+"""Read-only query tools for the assisted chatbot.
 
-Every tool checks the caller's permission and restricts rows to what the
-contact may see. Scope is decided here, in code: callers (including any future
-language model) pass only a small free-text argument, never a partner, domain
-or field list. Tools return a fixed set of fields.
+Private tools check the caller's permission and restrict rows to what the
+contact may see; public tools return only published website content. Scope is
+decided here, in code: callers (including any future language model) pass only
+a small free-text argument, never a partner, domain or field list. Tools
+return a fixed set of fields.
 """
 
 import re
@@ -22,6 +23,7 @@ MAX_RESULTS = 5
 MAX_TEXT_LENGTH = 80
 MAX_CANDIDATES = 5
 MIN_TOKEN_LENGTH = 3
+PUBLIC_TOOL_NAMES = frozenset({"public_catalog", "public_faq"})
 _PUBLIC_CATALOG_LIST_TERMS = frozenset(
     {
         "catalogo",
@@ -68,7 +70,7 @@ TOOL_REGISTRY: dict[str, tuple[str, str]] = {
 
 
 class QueryService(models.AbstractModel):
-    """Entry point that dispatches authorized read-only queries."""
+    """Dispatch permission-scoped private and published-content queries."""
 
     _name = "rioclaro.query.service"
     _description = "Assisted Query Service"

@@ -1606,6 +1606,23 @@ an empty period (last 30 days), a day count, an explicit
 `últimos N días`. Natural periods use the `America/Mexico_City` business date.
 For example, `este mes` means the first day of the current month through today.
 
+### M9 Owner queries: production verification
+
+Verified from the Owner Telegram contact on the VM:
+
+- Top products returned the top three products by untaxed sales, units sold,
+  and currency.
+- Week-over-week sales comparison returned the current and previous weeks and
+  their difference.
+- Open balances returned accounts receivable/payable and overdue amounts.
+- Asking for the highest-margin category in `este mes` returned no results
+  because there were no confirmed sales in the current month. Asking for the
+  last 30 days returned **Mercancías para Reventa / Limpieza e Higiene /
+  Cuidado del Hogar y Superficies**, with margin **$76.00 MXN (49%)**, revenue
+  **$155.00 MXN**, and cost **$79.00 MXN**.
+
+![Owner margin query for the last 30 days](docs/screenshots/m9-01-owner-margin-query.png)
+
 ## 17. Draft vendor bill feature verification
 
 - Started Odoo containers (`docker compose up -d`).

@@ -1644,8 +1644,9 @@ contact permissions.
 ### Scope and safeguards
 
 - The assistant can search only published product names/descriptions and
-  published website pages. It cannot access prices, inventory, customer
-  records, orders, invoices, sales, or purchases.
+  published website pages. Product recommendations link product names to their
+  public Odoo shop pages. It cannot access prices, inventory, customer records,
+  orders, invoices, sales, or purchases.
 - The feature is disabled by default. Enable it only on the Live Chat channel
   intended for website visitors. Native-chatbot conversations are left to the
   chatbot. Odoo shows the chat bubble and starts a session only while at least

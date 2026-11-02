@@ -179,6 +179,7 @@ class QueryService(models.AbstractModel):
                     {
                         "name": product.name,
                         "description": description[:600],
+                        "url": product.website_url,
                     },
                 )
             )

@@ -352,6 +352,26 @@ class TestPublicWebsiteQueries(TransactionCase):
         self.assertEqual(result["rows"][0]["name"], "Limpia Pisos Test")
         self.assertIn("lavanda", result["rows"][0]["description"])
 
+    def test_public_catalog_general_list_returns_published_products(self):
+        public_products = self.env["product.template"].create(
+            [
+                {"name": "Catalogo General Esponja", "is_published": True},
+                {"name": "Catalogo General Trapeador", "is_published": True},
+            ]
+        )
+        private_product = self.env["product.template"].create(
+            {"name": "Catalogo General Privado", "is_published": False}
+        )
+
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_catalog", "¿Qué productos tienen?"
+        )
+
+        self.assertTrue(result["ok"])
+        result_names = {row["name"] for row in result["rows"]}
+        self.assertTrue({product.name for product in public_products} <= result_names)
+        self.assertNotIn(private_product.name, result_names)
+
     def test_public_tool_rejects_private_tool_names(self):
         result = self.env["rioclaro.query.service"].run_public_tool(
             "aggregate_sales", "30"

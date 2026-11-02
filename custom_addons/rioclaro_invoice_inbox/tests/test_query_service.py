@@ -335,6 +335,23 @@ class TestPublicWebsiteQueries(TransactionCase):
         )
         self.assertEqual(set(result["rows"][0]), {"name", "description"})
 
+    def test_public_catalog_uses_description_shown_under_product_title(self):
+        self.env["product.template"].create(
+            {
+                "name": "Limpia Pisos Test",
+                "is_published": True,
+                "description_ecommerce": "<p>Aroma a lavanda con poder antibacterial.</p>",
+            }
+        )
+
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_catalog", "lavanda"
+        )
+
+        self.assertEqual(len(result["rows"]), 1)
+        self.assertEqual(result["rows"][0]["name"], "Limpia Pisos Test")
+        self.assertIn("lavanda", result["rows"][0]["description"])
+
     def test_public_tool_rejects_private_tool_names(self):
         result = self.env["rioclaro.query.service"].run_public_tool(
             "aggregate_sales", "30"

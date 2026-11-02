@@ -1686,6 +1686,24 @@ contact permissions.
    the AI no longer replies. Native-chatbot conversations, and conversations
    where a human agent has replied, should not receive competing AI replies.
 
+### Production verification (2026-11-02)
+
+Verified on the production Odoo site after deploying commit `3eb8154`:
+
+- An anonymous visitor received a product recommendation for Limpia Pisos
+  Multiusos 1L. The assistant correctly said the available catalog text did not
+  confirm lavender scent.
+- When asked for prices and stock, the assistant stated that the catalog does
+  not show those details.
+- The sixth question sent within the five-minute window received
+  `Espera unos minutos antes de volver a consultar.`
+- After the human operator replied, the visitor's next question received no AI
+  response, as intended.
+- Follow-up content gap: the broad question `¿Qué productos tienen?` returned
+  `No encontré resultados para tu consulta.` The current catalog search works
+  better with a specific product or category; add a follow-up improvement for
+  general catalog-list questions.
+
 ### Local verification
 
 Run the add-on test suite using the repository's Odoo 20/PostgreSQL Compose

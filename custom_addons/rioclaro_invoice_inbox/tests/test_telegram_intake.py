@@ -234,20 +234,132 @@ class TestTelegramIntake(TransactionCase):
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
-    def test_unknown_text_sender_is_denied_before_ai(
-        self, answer_mock, send_mock, updates_mock
+    @patch.object(AssistedQueryAI, "answer_public")
+    def test_unknown_text_sender_can_only_use_public_query_path(
+        self, answer_public_mock, answer_mock, send_mock, updates_mock
     ):
-        updates_mock.return_value = (204, [_text_message(sender_id=999)])
+        updates_mock.return_value = (
+            204,
+            [
+                _text_message(
+                    sender_id=999,
+                    text="¿Qué productos tienen?",
+                )
+            ],
+        )
+        answer_public_mock.return_value = {
+            "ok": True,
+            "tool": "public_faq",
+            "rows": [],
+            "answer": "Horario publicado: de lunes a viernes.",
+        }
 
         self.intake.cron_poll_telegram()
 
         answer_mock.assert_not_called()
-        send_mock.assert_called_once_with(555, "No autorizado para consultas.")
+        answer_public_mock.assert_called_once_with("¿Qué productos tienen?")
+        send_mock.assert_called_once_with(
+            555, "Horario publicado: de lunes a viernes."
+        )
         audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
             [("source_message_id", "=", "telegram:555:50")]
         )
-        self.assertEqual(audit.outcome, "denied")
+        self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.tool, "public_faq")
+        self.assertFalse(audit.contact_id)
         self.assertEqual(audit.telegram_user_id, "999")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    @patch.object(AssistedQueryAI, "answer_public")
+    def test_unknown_private_question_never_uses_private_query_path(
+        self, answer_public_mock, answer_mock, send_mock, updates_mock
+    ):
+        updates_mock.return_value = (
+            210,
+            [
+                _text_message(
+                    message_id=56,
+                    sender_id=999,
+                    text="¿Cuánto vendimos este mes?",
+                )
+            ],
+        )
+        answer_public_mock.return_value = {
+            "ok": True,
+            "tool": "public_faq",
+            "rows": [],
+            "answer": "No encontré información pública sobre eso.",
+        }
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_not_called()
+        answer_public_mock.assert_called_once_with("¿Cuánto vendimos este mes?")
+        send_mock.assert_called_once_with(
+            555, "No encontré información pública sobre eso."
+        )
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:56")]
+        )
+        self.assertEqual(audit.tool, "public_faq")
+        self.assertFalse(audit.contact_id)
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    @patch.object(AssistedQueryAI, "answer_public")
+    def test_unknown_sender_gets_public_help_without_ai(
+        self, answer_public_mock, answer_mock, send_mock, updates_mock
+    ):
+        updates_mock.return_value = (
+            207,
+            [
+                _text_message(
+                    message_id=53,
+                    sender_id=999,
+                    text="¿Qué puedes hacer?",
+                )
+            ],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_not_called()
+        answer_public_mock.assert_not_called()
+        reply = send_mock.call_args.args[1]
+        self.assertIn("información pública", reply)
+        self.assertIn("sin registrar una cuenta", reply)
+        self.assertIn("datos privados", reply)
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:53")]
+        )
+        self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.tool, "help")
+        self.assertFalse(audit.contact_id)
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(TelegramClient, "download_file")
+    def test_unknown_voice_sender_is_not_downloaded(
+        self, download_mock, send_mock, updates_mock
+    ):
+        updates_mock.return_value = (208, [_voice_message(sender_id=999)])
+
+        self.intake.cron_poll_telegram()
+
+        download_mock.assert_not_called()
+        self.assertIn("por texto", send_mock.call_args.args[1])
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:60")]
+        )
+        self.assertEqual(audit.outcome, "denied")
+        self.assertEqual(audit.input_type, "voice")
+        self.assertFalse(audit.contact_id)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
@@ -444,7 +556,7 @@ class TestTelegramIntake(TransactionCase):
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
-    def test_query_rate_limit_is_five_per_contact_per_five_minutes(
+    def test_query_rate_limit_is_five_per_telegram_user_per_five_minutes(
         self, answer_mock, send_mock, updates_mock
     ):
         audit_model = self.env["rioclaro.assisted.query.audit"]
@@ -471,6 +583,44 @@ class TestTelegramIntake(TransactionCase):
             [("source_message_id", "=", "telegram:555:51")]
         )
         self.assertEqual(audit.outcome, "rate_limited")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer_public")
+    def test_public_query_rate_limit_applies_to_unknown_senders(
+        self, answer_public_mock, send_mock, updates_mock
+    ):
+        audit_model = self.env["rioclaro.assisted.query.audit"]
+        for index in range(5):
+            audit_model.log_request(
+                telegram_user_id=999,
+                source_message_id=f"telegram:555:public-old-{index}",
+                outcome="allowed",
+                tool="public_catalog",
+            )
+        updates_mock.return_value = (
+            209,
+            [
+                _text_message(
+                    message_id=59,
+                    sender_id=999,
+                    text="¿Qué productos tienen?",
+                )
+            ],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        answer_public_mock.assert_not_called()
+        send_mock.assert_called_once_with(
+            555, "Límite alcanzado: intenta de nuevo en unos minutos."
+        )
+        audit = audit_model.sudo().search(
+            [("source_message_id", "=", "telegram:555:59")]
+        )
+        self.assertEqual(audit.outcome, "rate_limited")
+        self.assertFalse(audit.contact_id)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")

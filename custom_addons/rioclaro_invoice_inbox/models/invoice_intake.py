@@ -7,6 +7,7 @@ from typing import Literal
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools.mail import email_normalize
 
 from .chat_help import is_capability_help_request
 from .document_intelligence import (
@@ -29,6 +30,17 @@ _TELEGRAM_RATE_WINDOW_PARAM = "rioclaro_invoice_inbox.telegram_query_window_minu
 _TELEGRAM_QUERY_RATE_LIMIT = 5
 _TELEGRAM_QUERY_WINDOW_MINUTES = 5
 _TELEGRAM_MAX_REPLY_LENGTH = 4000
+_TELEGRAM_NAME_MAX_LENGTH = 100
+_TELEGRAM_EMAIL_SKIP_RESPONSES = {
+    "no",
+    "no gracias",
+    "omitir",
+    "omitir correo",
+    "prefiero no",
+    "prefiero no compartirlo",
+    "sin correo",
+    "skip",
+}
 _TELEGRAM_PRIVATE_CAPABILITY_LABELS = (
     ("can_query_inventory", "Consultar existencias y disponibilidad de productos"),
     ("can_query_purchases", "Consultar compras"),
@@ -420,6 +432,230 @@ class SupplierInvoiceIntake(models.Model):
         return created
 
     @api.model
+    def _is_telegram_rate_limited(self, telegram_user_id: int | str) -> bool:
+        """Return whether this Telegram user reached the rolling query limit."""
+        params = self.env["ir.config_parameter"].sudo()
+        rate_limit = max(
+            params.get_int(
+                _TELEGRAM_RATE_LIMIT_PARAM,
+                default=_TELEGRAM_QUERY_RATE_LIMIT,
+            ),
+            1,
+        )
+        window_minutes = max(
+            params.get_int(
+                _TELEGRAM_RATE_WINDOW_PARAM,
+                default=_TELEGRAM_QUERY_WINDOW_MINUTES,
+            ),
+            1,
+        )
+        window_start = fields.Datetime.now() - timedelta(minutes=window_minutes)
+        recent_count = self.env["rioclaro.assisted.query.audit"].sudo().search_count(
+            [
+                ("telegram_user_id", "=", str(telegram_user_id)),
+                ("request_at", ">=", window_start),
+            ]
+        )
+        return recent_count >= rate_limit
+
+    @api.model
+    def _telegram_onboarding_prompt(self, contact: models.Model) -> str:
+        """Return the next onboarding prompt for a Telegram contact."""
+        if contact.onboarding_state == "awaiting_name":
+            return (
+                "¡Hola! Para crear tu perfil de Telegram en Odoo, "
+                "¿qué nombre quieres usar?"
+            )
+        if contact.onboarding_state == "awaiting_email":
+            return (
+                f"Gracias, {contact.name}. ¿Cuál es tu correo electrónico? "
+                "Es opcional; si lo compartes, se guardará en Odoo y lo verán "
+                "los administradores. Escribe solo el correo o «Omitir» para "
+                "continuar sin compartirlo."
+            )
+        return self._telegram_help_response(contact)
+
+    @api.model
+    def _process_telegram_onboarding(
+        self,
+        client: TelegramClient,
+        message: TelegramMessage,
+        contact: models.Model,
+        *,
+        start: bool = False,
+    ) -> None:
+        """Collect a name and optional email without processing the message as a query."""
+        audit_model = self.env["rioclaro.assisted.query.audit"].sudo()
+        source_id = f"telegram:{message.chat_id}:{message.message_id}"
+        input_type = "voice" if message.voice else "text"
+        existing_audit = audit_model.search(
+            [("source_message_id", "=", source_id)],
+            limit=1,
+        )
+        if existing_audit:
+            client.send_message(
+                message.chat_id,
+                self._telegram_onboarding_prompt(contact),
+            )
+            return
+
+        if self._is_telegram_rate_limited(message.sender_id):
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="rate_limited",
+                contact=contact,
+                tool="onboarding",
+                input_type=input_type,
+            )
+            client.send_message(
+                message.chat_id,
+                "Límite alcanzado: intenta de nuevo en unos minutos.",
+            )
+            return
+
+        if start:
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="allowed",
+                contact=contact,
+                tool="onboarding",
+                input_type=input_type,
+            )
+            client.send_message(
+                message.chat_id,
+                self._telegram_onboarding_prompt(contact),
+            )
+            return
+
+        response_text = message.text.strip()
+        if message.voice:
+            duration = message.voice.duration_seconds
+            if duration is not None and duration > 60:
+                audit_model.log_request(
+                    telegram_user_id=message.sender_id,
+                    source_message_id=source_id,
+                    outcome="invalid",
+                    contact=contact,
+                    tool="onboarding",
+                    input_type=input_type,
+                )
+                client.send_message(
+                    message.chat_id,
+                    "La nota de voz no puede superar 60 segundos. "
+                    "Envía una más corta o escribe tu respuesta.",
+                )
+                return
+            audio = client.download_file(message.voice.file_id)
+            try:
+                speech_client = AzureSpeechClient(
+                    endpoint=os.environ.get("RIOCLARO_SPEECH_ENDPOINT", ""),
+                    region=os.environ.get("RIOCLARO_SPEECH_REGION", ""),
+                    api_key=os.environ.get("RIOCLARO_SPEECH_KEY", ""),
+                )
+                response_text = speech_client.transcribe(audio, language="es-MX")
+            except (ValueError, SpeechError):
+                audit_model.log_request(
+                    telegram_user_id=message.sender_id,
+                    source_message_id=source_id,
+                    outcome="error",
+                    contact=contact,
+                    tool="onboarding",
+                    input_type=input_type,
+                )
+                client.send_message(
+                    message.chat_id,
+                    "No pude entender la nota de voz. Intenta de nuevo o "
+                    "responde por texto.",
+                )
+                return
+
+        if contact.onboarding_state == "awaiting_name":
+            name = " ".join(response_text.split())
+            if (
+                not name
+                or name.startswith("/")
+                or len(name) > _TELEGRAM_NAME_MAX_LENGTH
+            ):
+                audit_model.log_request(
+                    telegram_user_id=message.sender_id,
+                    source_message_id=source_id,
+                    outcome="invalid",
+                    contact=contact,
+                    tool="onboarding",
+                    input_type=input_type,
+                )
+                client.send_message(
+                    message.chat_id,
+                    f"Envía un nombre de hasta {_TELEGRAM_NAME_MAX_LENGTH} caracteres.",
+                )
+                return
+            contact.write(
+                {
+                    "name": name,
+                    "onboarding_state": "awaiting_email",
+                    "onboarding_last_message_id": source_id,
+                }
+            )
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="allowed",
+                contact=contact,
+                tool="onboarding",
+                input_type=input_type,
+            )
+            client.send_message(
+                message.chat_id,
+                self._telegram_onboarding_prompt(contact),
+            )
+            return
+
+        email_choice = " ".join(response_text.casefold().split()).strip(
+            " \t\r\n.,;:¡!¿?"
+        )
+        if email_choice in _TELEGRAM_EMAIL_SKIP_RESPONSES:
+            email = False
+        else:
+            email = email_normalize(response_text)
+            if not email or len(email) > 254:
+                audit_model.log_request(
+                    telegram_user_id=message.sender_id,
+                    source_message_id=source_id,
+                    outcome="invalid",
+                    contact=contact,
+                    tool="onboarding",
+                    input_type=input_type,
+                )
+                client.send_message(
+                    message.chat_id,
+                    "No pude validar ese correo. Escribe una dirección completa "
+                    "o «Omitir».",
+                )
+                return
+
+        contact.write(
+            {
+                "email": email,
+                "onboarding_state": "complete",
+                "onboarding_last_message_id": source_id,
+            }
+        )
+        audit_model.log_request(
+            telegram_user_id=message.sender_id,
+            source_message_id=source_id,
+            outcome="allowed",
+            contact=contact,
+            tool="onboarding",
+            input_type=input_type,
+        )
+        client.send_message(
+            message.chat_id,
+            self._telegram_onboarding_prompt(contact),
+        )
+
+    @api.model
     def _handle_telegram_message(
         self, client: TelegramClient, message: TelegramMessage
     ) -> int:
@@ -434,15 +670,48 @@ class SupplierInvoiceIntake(models.Model):
             TelegramError: When a Telegram call fails and the message must be
                 retried.
         """
+        contact, created = self.env[
+            "rioclaro.telegram.contact"
+        ].get_or_create_public_contact(
+            message.sender_id,
+            message.sender_name,
+            f"telegram:{message.chat_id}:{message.message_id}",
+        )
+        if not contact.active:
+            client.send_message(
+                message.chat_id,
+                "El acceso a este bot está bloqueado. Contacta a un administrador.",
+            )
+            return 0
+
+        source_id = f"telegram:{message.chat_id}:{message.message_id}"
+        onboarding_audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [
+                ("source_message_id", "=", source_id),
+                ("tool", "=", "onboarding"),
+            ],
+            limit=1,
+        )
+        if (
+            created
+            or contact.onboarding_state != "complete"
+            or onboarding_audit
+        ):
+            is_start_message = created or (
+                contact.onboarding_last_message_id == source_id
+            )
+            self._process_telegram_onboarding(
+                client,
+                message,
+                contact,
+                start=is_start_message,
+            )
+            return 0
+
         if message.text and not message.file:
             self._process_telegram_text_query(client, message)
             return 0
         if message.voice:
-            if not self.env["rioclaro.telegram.contact"].get_active_contact(
-                message.sender_id
-            ):
-                self._process_telegram_text_query(client, message)
-                return 0
             if (
                 message.voice.duration_seconds is not None
                 and message.voice.duration_seconds > 60
@@ -493,24 +762,33 @@ class SupplierInvoiceIntake(models.Model):
             return
 
         contacts = self.env["rioclaro.telegram.contact"]
-        contact = contacts.get_active_contact(message.sender_id)
+        contact = contacts.get_contact(message.sender_id)
+        if not contact or not contact.active:
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="denied",
+                contact=contact,
+                input_type=input_type,
+            )
+            reply = (
+                "El acceso a este bot está bloqueado. Contacta a un administrador."
+                if contact
+                else "Envía un mensaje nuevo para iniciar el registro."
+            )
+            self._send_telegram_query_reply(
+                client,
+                message.chat_id,
+                reply,
+                message.message_id,
+            )
+            return
+        if contact.onboarding_state != "complete":
+            self._process_telegram_onboarding(client, message, contact)
+            return
+
         params = self.env["ir.config_parameter"].sudo()
-        rate_limit = max(
-            params.get_int(_TELEGRAM_RATE_LIMIT_PARAM, default=_TELEGRAM_QUERY_RATE_LIMIT),
-            1,
-        )
-        window_minutes = max(
-            params.get_int(_TELEGRAM_RATE_WINDOW_PARAM, default=_TELEGRAM_QUERY_WINDOW_MINUTES),
-            1,
-        )
-        window_start = fields.Datetime.now() - timedelta(minutes=window_minutes)
-        recent_count = audit_model.search_count(
-            [
-                ("telegram_user_id", "=", str(message.sender_id)),
-                ("request_at", ">=", window_start),
-            ]
-        )
-        if recent_count >= rate_limit:
+        if self._is_telegram_rate_limited(message.sender_id):
             audit_model.log_request(
                 telegram_user_id=message.sender_id,
                 source_message_id=source_id,
@@ -522,22 +800,6 @@ class SupplierInvoiceIntake(models.Model):
                 client,
                 message.chat_id,
                 "Límite alcanzado: intenta de nuevo en unos minutos.",
-                message.message_id,
-            )
-            return
-
-        if not contact and input_type == "voice":
-            audit_model.log_request(
-                telegram_user_id=message.sender_id,
-                source_message_id=source_id,
-                outcome="denied",
-                input_type=input_type,
-            )
-            self._send_telegram_query_reply(
-                client,
-                message.chat_id,
-                "Para consultar información pública, escribe tu pregunta por texto. "
-                "Las notas de voz requieren una cuenta autorizada.",
                 message.message_id,
             )
             return
@@ -593,12 +855,10 @@ class SupplierInvoiceIntake(models.Model):
                 "rows": [],
                 "answer": self._telegram_help_response(contact),
             }
-        elif contact:
+        else:
             result = self.env["rioclaro.assisted.query.ai"].answer(
                 message.sender_id, question
             )
-        else:
-            result = self.env["rioclaro.assisted.query.ai"].answer_public(question)
         outcome = {
             "denied": "denied",
             "invalid_question": "invalid",
@@ -656,14 +916,13 @@ class SupplierInvoiceIntake(models.Model):
                         speech_reply, language="es-MX"
                     )
                     client.send_voice(message.chat_id, spoken_reply)
-                    if parse_mode:
-                        self._send_telegram_query_reply(
-                            client,
-                            message.chat_id,
-                            reply,
-                            message.message_id,
-                            parse_mode=parse_mode,
-                        )
+                    self._send_telegram_query_reply(
+                        client,
+                        message.chat_id,
+                        reply,
+                        message.message_id,
+                        parse_mode=parse_mode,
+                    )
                     return
                 except (ValueError, SpeechError, TelegramError):
                     _logger.warning(

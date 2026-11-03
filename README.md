@@ -97,29 +97,33 @@ duplicates. Use **Extract Invoice Data** on the record as with email.
 
 1. Create a bot with @BotFather and set `RIOCLARO_TELEGRAM_BOT_TOKEN` in the
    ignored `.env` file (see `.env.example`). Never commit the token.
-2. As an administrator, open **Invoice Intake → Telegram Contacts** and create
-   one contact per sender who needs private business access or invoice
-   submission: the numeric Telegram user ID (shown by @userinfobot), a role
-   (supplier, internal user, or customer), and a partner for suppliers and
-   customers. The role preloads default permissions, which you can grant or
-   revoke one by one (inventory, purchases, sales, billing, order status,
-   quotation, submit vendor invoice, issue customer invoice). Deactivating a
-   contact revokes private access and invoice submission, but not access to
-   public website information.
+2. The first private message automatically creates a public-only Telegram
+   contact in **Invoice Intake → Telegram Contacts**. The bot asks for a name,
+   then offers an optional email; it stores the email only if the user provides
+   one, and `Omitir` continues without it. Public features become available
+   after this choice. New contacts have no private permissions. An
+   administrator can grant selected permissions from the contact record; set
+   a supplier/customer role and partner when needed. Disabling **Bot access**
+   blocks all bot features, including public information and voice. Use the
+   **Archived** filter to find and reactivate a blocked contact.
 3. Set `rioclaro_invoice_inbox.telegram_polling_enabled` to `True` in the one
    database that should poll the bot. Polling is off by default because a bot
    token must be polled by a single database only; otherwise databases
    compete for the same messages.
-4. Anyone can ask text questions about the published product catalog, public
-   prices, and published website content in a private chat; no Odoo contact is
-   required. Private business queries and invoice submission require an active
-   contact with the relevant permission. The assistant applies that contact's
-   partner/company scope. Each Telegram user is limited to 5 requests per
-   rolling 5-minute window. Group-chat messages are ignored, and unauthenticated
-   voice messages and invoice attachments are not processed.
+4. After onboarding, active contacts can ask text or voice questions about the
+   published product catalog, public prices, and published website content.
+   Voice notes are limited to 60 seconds; replies contain both audio and text.
+   Private business queries and invoice submission require the corresponding
+   permission granted in Odoo, and the assistant applies that contact's
+   partner/company scope. An attachment sent as the first message is not
+   downloaded or retained; resend it after an administrator grants invoice
+   permission. Each Telegram user is limited to 5 requests per rolling
+   5-minute window. Group-chat messages are ignored, and blocked contacts
+   cannot use any bot feature.
 5. Administrators can inspect **Invoice Intake → Assisted Query Audit**.
-   The audit records Telegram user ID, selected tool, outcome, and message ID;
-   it deliberately does not store the question or answer.
+   The audit records Telegram user ID, selected tool, outcome, input type, and
+   message ID, including onboarding events. It does not store questions,
+   answers, email addresses, voice audio, or transcripts.
 
 Private Telegram features use the contact ACL; public text questions are
 answered only from public website data. WhatsApp ingestion is a later
@@ -161,15 +165,16 @@ Set these environment variables in the ignored `.env` file:
 - `RIOCLARO_SPEECH_REGION`
 - `RIOCLARO_SPEECH_KEY`
 
-Telegram text handling, audit logging, and rate limiting are implemented.
-Authorized users may also send a private Telegram voice note (OGG/Opus).
-Voice notes are limited to 60 seconds. Azure AI Speech transcribes them in
-Spanish (Mexico), and the same permission-scoped
-read-only query flow handles the transcription, and the answer is sent as an
-MP3 voice message. If speech synthesis or audio delivery fails, the bot sends
-the answer as text instead. Voice requests use the same 5-per-user,
-per-5-minute limit and are marked as voice input in the audit view; audio and
-transcribed text are not stored by the audit model.
+Telegram text and voice handling, onboarding, audit logging, and rate limiting
+are implemented. Any active onboarded contact may send a private Telegram
+voice note (OGG/Opus) for public questions; private queries still require the
+matching Odoo permission. Voice notes are limited to 60 seconds. Azure AI
+Speech transcribes them in Spanish (Mexico), and the same permission-scoped
+read-only query flow handles the transcription. Replies include MP3 audio and
+text; if speech synthesis or audio delivery fails, the text reply is still
+sent. Voice requests use the same 5-per-user, per-5-minute limit and are
+marked as voice input in the audit view; audio and transcribed text are not
+stored by the audit model.
 
 Verify the deployment picks the right tool (needs the `RIOCLARO_AOAI_*`
 variables in `.env`; prints no secrets and queries no Odoo data):

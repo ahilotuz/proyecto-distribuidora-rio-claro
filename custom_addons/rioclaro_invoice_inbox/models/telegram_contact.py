@@ -1,5 +1,8 @@
+from psycopg2 import IntegrityError
+
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools.mail import email_normalize
 
 PERMISSION_FIELDS: tuple[str, ...] = (
     "can_query_inventory",
@@ -16,6 +19,7 @@ PERMISSION_FIELDS: tuple[str, ...] = (
 # Default permissions granted when a role is selected. Administrators can
 # adjust each contact afterwards.
 ROLE_DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
+    "public": frozenset(),
     "supplier": frozenset(
         {
             "can_query_purchases",
@@ -36,21 +40,21 @@ ROLE_DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
 
 
 class TelegramContact(models.Model):
-    """A Telegram user authorized to talk to the bot, with explicit permissions.
+    """A Telegram user profile with explicitly managed private permissions.
 
-    Any user may query public website content. Active contacts may also use
-    explicitly permitted private business features; unknown and inactive IDs
-    cannot access those features.
+    Public contacts start without private permissions. An inactive contact is
+    blocked from all bot features, including public information.
     """
 
     _name = "rioclaro.telegram.contact"
-    _description = "Authorized Telegram Contact"
+    _description = "Telegram Contact"
     _order = "name"
 
     name = fields.Char(required=True)
     telegram_user_id = fields.Char(string="Telegram User ID", required=True, index=True)
     role = fields.Selection(
         [
+            ("public", "Public user"),
             ("supplier", "Supplier"),
             ("internal", "Internal user"),
             ("customer", "Customer"),
@@ -62,12 +66,29 @@ class TelegramContact(models.Model):
         string="Partner",
         help="Limits supplier and customer answers to this partner's own data.",
     )
+    email = fields.Char(string="Email")
     company_id = fields.Many2one(
         "res.company",
         required=True,
         default=lambda self: self.env.company,
     )
-    active = fields.Boolean(default=True)
+    onboarding_state = fields.Selection(
+        [
+            ("awaiting_name", "Awaiting name"),
+            ("awaiting_email", "Awaiting email choice"),
+            ("complete", "Complete"),
+        ],
+        string="Onboarding",
+        required=True,
+        default="complete",
+        index=True,
+    )
+    onboarding_last_message_id = fields.Char(copy=False)
+    active = fields.Boolean(
+        string="Bot access",
+        default=True,
+        help="Disable this contact to block all Telegram bot access.",
+    )
 
     can_query_inventory = fields.Boolean(string="Query inventory")
     can_query_purchases = fields.Boolean(string="Query purchases")
@@ -102,6 +123,13 @@ class TelegramContact(models.Model):
                     _("Suppliers and customers must be linked to a partner.")
                 )
 
+    @api.constrains("email")
+    def _check_email(self) -> None:
+        """Validate an optional email address before storing it."""
+        for contact in self:
+            if contact.email and not email_normalize(contact.email):
+                raise ValidationError(_("Enter a valid email address or leave it empty."))
+
     @api.model
     def _role_default_values(self, role: str) -> dict[str, bool]:
         """Return the permission flags a role grants by default."""
@@ -125,12 +153,50 @@ class TelegramContact(models.Model):
         return super().create(vals_list)
 
     @api.model
-    def get_active_contact(self, telegram_user_id: int | str) -> models.Model:
-        """Return the active contact for a Telegram ID, or an empty recordset."""
-        return self.sudo().search(
-            [("telegram_user_id", "=", str(telegram_user_id)), ("active", "=", True)],
+    def get_contact(self, telegram_user_id: int | str) -> models.Model:
+        """Return a contact, including archived contacts, for a Telegram ID."""
+        return self.sudo().with_context(active_test=False).search(
+            [("telegram_user_id", "=", str(telegram_user_id))],
             limit=1,
         )
+
+    @api.model
+    def get_active_contact(self, telegram_user_id: int | str) -> models.Model:
+        """Return an active contact for a Telegram ID, or an empty recordset."""
+        contact = self.get_contact(telegram_user_id)
+        if contact.active:
+            return contact
+        return self.browse()
+
+    @api.model
+    def get_or_create_public_contact(
+        self,
+        telegram_user_id: int | str,
+        telegram_name: str,
+        initial_message_id: str,
+    ) -> tuple[models.Model, bool]:
+        """Return the Telegram contact, creating a zero-permission public profile."""
+        existing = self.get_contact(telegram_user_id)
+        if existing:
+            return existing, False
+
+        name = " ".join((telegram_name or "").split())[:100]
+        values = {
+            "name": name or _("Telegram user %s") % telegram_user_id,
+            "telegram_user_id": str(telegram_user_id),
+            "role": "public",
+            "onboarding_state": "awaiting_name",
+            "onboarding_last_message_id": initial_message_id,
+        }
+        try:
+            with self.env.cr.savepoint():
+                contact = self.sudo().create(values)
+        except IntegrityError:
+            contact = self.get_contact(telegram_user_id)
+            if not contact:
+                raise
+            return contact, False
+        return contact, True
 
     @api.model
     def is_allowed(self, telegram_user_id: int | str, permission: str) -> bool:

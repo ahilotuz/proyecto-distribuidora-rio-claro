@@ -1418,10 +1418,11 @@ merged by the assistant). Never print or commit secrets.
    fails with a Postgres socket error. Expect `WEBHOOK {'url':
    'https://rioclaro.ropech.com/rioclaro/telegram/webhook', ...,
    'last_error_message': None}`.
-5. Create the Owner contact (`rioclaro.telegram.contact`: Telegram ID, role
-   `internal`, company, query permissions) from an `odoo shell` script or the
-   Odoo UI. Without it, private business queries and voice questions are
-   denied; public text questions remain available without a contact.
+5. At the initial M6 rollout, create the Owner contact
+   (`rioclaro.telegram.contact`: Telegram ID, role `internal`, company, query
+   permissions) from an `odoo shell` script or the Odoo UI. The onboarding
+   behavior described in section 21 supersedes the original no-contact public
+   text flow.
 6. Test from Telegram: a stock question returned the correct reply from the
    VM database. Forged and missing secret both return 403; GET returns 405;
    Telegram shows 0 pending updates and no errors.
@@ -1759,18 +1760,27 @@ and per-visitor rate limiting.
 ## 21. Telegram public product recommendations
 
 Telegram public text questions use the same published product catalog and FAQ
-content as Website Live Chat. Any Telegram account can ask these questions in
-a private chat without an Odoo contact. Authorized active contacts can also
-ask by voice.
+content as Website Live Chat. A first private message automatically creates a
+zero-permission `public` Telegram Contact and starts onboarding.
 
-- Any Telegram account may ask for published product information, public
-  prices, and published website content by text. Unknown or inactive IDs are
-  sent only through the public query path, which cannot call private tools.
-- Private business tools are offered only when the contact has the matching
-  permission enabled on its Odoo Telegram contact. The query service checks
-  that permission again and retains its existing partner and company scopes.
-- Unknown or inactive users cannot submit invoice attachments. Group chats
-  remain ignored, and public queries are text-only.
+- The bot asks for a name, then offers an optional email. It saves the email
+  only when voluntarily provided; the prompt explains that Odoo administrators
+  can see it. `Omitir` leaves the field blank. Public features become
+  available after the user completes this choice.
+- A new public contact has no private permissions. An administrator can grant
+  individual permissions in **Invoice Intake → Telegram Contacts**; private
+  tools remain scoped to that contact's partner and company.
+- Disabling **Bot access** blocks all bot features, including public answers
+  and voice. Archived contacts are found by Telegram ID and are never
+  recreated or reactivated automatically; an administrator can use the
+  **Archived** filter to review or reactivate one.
+- The initial message is not answered as a query. An attachment sent during
+  onboarding is not downloaded or retained; resend it after an administrator
+  grants invoice-submission permission. Group-chat messages remain ignored.
+- Onboarding accepts text or voice replies. After onboarding, active contacts
+  can ask public questions by text or voice; voice notes are limited to 60
+  seconds and answers are sent as both audio and text. A private query still
+  requires its matching Odoo permission.
 - Public recommendations include only published names, website descriptions,
   and the price displayed to an anonymous visitor under the default public
   website pricelist, currency, fiscal position, and tax display. Cheapest-price
@@ -1778,29 +1788,29 @@ ask by voice.
   stock, costs, margins, sales, invoices, and customer data remain excluded.
   In Telegram, exact product names link to their published shop pages using
   Odoo's configured `web.base.url`; only `/shop/...` paths are linked.
-- Existing Telegram query auditing and per-user rate limits also apply to
-  public questions, including users without an Odoo contact.
+- The five-request per-user, per-five-minute limit includes onboarding and
+  public questions. Audit records include onboarding metadata but never store
+  message text, email addresses, voice audio, or transcripts.
 
-Anyone can use `/start`, `/help`, `/ayuda`, or ask `¿Qué puedes hacer?` in a
-private chat to see public capabilities. Active contacts also see only the
-private queries and invoice submission enabled for their account. Help does
-not use Azure OpenAI.
+After onboarding, a contact can use `/start`, `/help`, `/ayuda`, or ask
+`¿Qué puedes hacer?` in a private chat to see public capabilities and only the
+private queries or invoice submission enabled for their account. Help does not
+use Azure OpenAI.
 
 ### Verify after deployment
 
 1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance.
-2. From an unregistered Telegram account in a private chat, ask
-   `¿Qué producto me sirve para lavar trastes?` and `¿Qué puedes hacer?`.
-   Confirm it recommends from published content and gives the public
-   capability summary. Confirm it does not disclose stock, costs, margins,
-   sales, invoices, or customer data.
-3. Use a second active contact with all private query permissions disabled.
-   Confirm it can ask the same public question but cannot retrieve private
-   sales, inventory, invoice, or order data.
-4. From a contact with a private permission granted in Odoo, ask a public
-   catalog question and a question covered by that permission. Confirm both
-   work; then revoke the private permission and confirm that private query is
-   denied while public recommendations still work.
-5. From an unregistered account, send an invoice attachment and a voice
-   message. Confirm neither is processed and public text questions remain
-   available.
+2. From an unregistered Telegram account in a private chat, send a message.
+   Confirm it creates a public Telegram Contact and asks for a name. Submit a
+   name, then a valid email; confirm the email appears on the Odoo contact.
+   Repeat with `Omitir` and confirm email stays blank while public options
+   become available.
+3. From the onboarded public contact, ask a public product question by text
+   and voice. Confirm the reply contains text and audio, and that stock, costs,
+   margins, sales, invoices, and customer data are not disclosed.
+4. Grant a specific private permission from the Odoo contact record. Confirm
+   the corresponding query works; revoke it and confirm the query is denied
+   while public questions continue to work.
+5. Disable **Bot access** for a contact and confirm even public text and voice
+   requests are denied. Send an invoice attachment as a first message and
+   confirm onboarding does not download or retain it.

@@ -3,6 +3,7 @@
 from psycopg2 import IntegrityError
 
 from odoo.exceptions import AccessError, ValidationError
+from odoo.addons.rioclaro_invoice_inbox.models.telegram_contact import PERMISSION_FIELDS
 from odoo.tests import TransactionCase, tagged
 from odoo.tools import mute_logger
 
@@ -74,6 +75,51 @@ class TestTelegramContact(TransactionCase):
         contact = self._create("106", "internal")
         contact.active = False
         self.assertFalse(self.contacts.is_allowed(106, "can_query_inventory"))
+
+    def test_public_contacts_start_without_permissions_and_can_be_granted_one(self):
+        contact = self._create("111", "public")
+
+        self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
+        self.assertFalse(self.contacts.is_allowed(111, "can_query_sales"))
+
+        contact.can_query_sales = True
+
+        self.assertTrue(self.contacts.is_allowed(111, "can_query_sales"))
+
+    def test_public_contact_is_created_once_and_inactive_records_are_found(self):
+        contact, created = self.contacts.get_or_create_public_contact(
+            112,
+            "  Telegram   User ",
+            "telegram:555:1",
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(contact.name, "Telegram User")
+        self.assertEqual(contact.role, "public")
+        self.assertEqual(contact.onboarding_state, "awaiting_name")
+        self.assertEqual(contact.onboarding_last_message_id, "telegram:555:1")
+        self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
+
+        contact.active = False
+        existing, created_again = self.contacts.get_or_create_public_contact(
+            112,
+            "Different name",
+            "telegram:555:2",
+        )
+
+        self.assertFalse(created_again)
+        self.assertEqual(existing, contact)
+        self.assertFalse(existing.active)
+        self.assertEqual(
+            self.contacts.with_context(active_test=False).search_count(
+                [("telegram_user_id", "=", "112")]
+            ),
+            1,
+        )
+
+    def test_invalid_optional_email_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            self._create("113", "public", email="not-an-email")
 
     def test_telegram_id_must_be_numeric(self):
         with self.assertRaises(ValidationError):

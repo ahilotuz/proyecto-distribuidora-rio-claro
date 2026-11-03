@@ -41,6 +41,15 @@ class MailThread(models.AbstractModel):
 
     @api.model
     def _filter_invoice_intake_routes(self, routes, result, message_id):
+        if result["route"] == "review":
+            _logger.info(
+                "Screening routed incoming email Message-ID %s to invoice intake "
+                "for manual review (label=%s).",
+                message_id,
+                result["label"],
+            )
+            return routes
+
         if (
             result["route"] == "inspect_attachments"
             and result["label"] == "supplier_invoice"

@@ -266,6 +266,12 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
         email["Subject"] = "Shipping update"
         email["Message-ID"] = "<shipping-test@example.test>"
         email.set_content("Your order has shipped.")
+        email.add_attachment(
+            b"shipping image",
+            maintype="image",
+            subtype="png",
+            filename="shipping.png",
+        )
         response = Mock()
         response.read.return_value = json.dumps(
             {"route": "ignore", "label": "not_invoice", "confidence": 1.0}
@@ -285,6 +291,98 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
         self.assertFalse(
             self.env["rioclaro.invoice.intake"].search(
                 [("source_message_id", "=", "<shipping-test@example.test>")]
+            )
+        )
+
+    def test_invoice_signal_with_attachment_is_reviewed_when_classifier_says_ignore(
+        self,
+    ):
+        self.env["ir.config_parameter"].sudo().set_bool(
+            "rioclaro_invoice_inbox.screening_enabled",
+            True,
+        )
+        self.env["ir.config_parameter"].sudo().set_str(
+            "rioclaro_invoice_inbox.screening_url",
+            "http://screening.example.test/api/screen-email",
+        )
+        email = EmailMessage()
+        email["From"] = "billing@example.test"
+        email["To"] = "supplier-invoices@example.test"
+        email["Subject"] = "Factura test 0046"
+        email["Message-ID"] = "<invoice-signal-review-test@example.test>"
+        email.set_content("Adjunto documento para pago.")
+        email.add_attachment(
+            b"%PDF-1.4\nsynthetic invoice",
+            maintype="application",
+            subtype="pdf",
+            filename="vendor-document-0046.pdf",
+        )
+        response = Mock()
+        response.read.return_value = json.dumps(
+            {"route": "ignore", "label": "not_invoice", "confidence": 0.99}
+        ).encode()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+
+        with patch(
+            "odoo.addons.rioclaro_invoice_inbox.models.mail_thread.urlopen",
+            return_value=response,
+        ):
+            self.env["mail.thread"].sudo().message_process(
+                "rioclaro.invoice.intake",
+                email.as_string(),
+            )
+
+        record = self.env["rioclaro.invoice.intake"].search(
+            [("source_message_id", "=", "<invoice-signal-review-test@example.test>")]
+        )
+        self.assertTrue(record)
+        self.assertFalse(record.invoice_id)
+
+    def test_invoice_cues_in_attachment_names_trigger_review_fallback(self):
+        mail_thread = self.env["mail.thread"]
+        invoice_signals = (
+            {
+                "subject": "Factura de proveedor 0046",
+                "body": "<p>Archivos solicitados.</p>",
+                "attachments": [("documento.pdf", b"content")],
+            },
+            {
+                "subject": "Documentos adjuntos",
+                "body": "<p>Adjunto comprobante fiscal.</p>",
+                "attachments": [("documento.pdf", b"content")],
+            },
+            {
+                "subject": "Documentos adjuntos",
+                "body": "<p>Archivos solicitados.</p>",
+                "attachments": [("CFDI_0046.xml", b"content")],
+            },
+            {
+                "subject": "Documentos adjuntos",
+                "body": "<p>Archivos solicitados.</p>",
+                "attachments": [("invoice_0046.pdf", b"content")],
+            },
+        )
+        for message_dict in invoice_signals:
+            with self.subTest(message_dict=message_dict):
+                self.assertTrue(mail_thread._has_invoice_email_signal(message_dict))
+
+        self.assertFalse(
+            mail_thread._has_invoice_email_signal(
+                {
+                    "subject": "Factura de proveedor",
+                    "body": "Adjunto el documento.",
+                    "attachments": [],
+                }
+            )
+        )
+        self.assertFalse(
+            mail_thread._has_invoice_email_signal(
+                {
+                    "subject": "Solicito info",
+                    "body": "Quiero información.",
+                    "attachments": [("Screenshot.png", b"content")],
+                }
             )
         )
 

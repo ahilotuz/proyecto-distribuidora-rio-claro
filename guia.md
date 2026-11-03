@@ -1554,9 +1554,11 @@ Test the endpoint (route `screen-email`, auth level FUNCTION):
    appears in Invoice Intake > Supplier Invoice Emails with the sender, the
    mailbox and the received time.
    ![Intake record created from the email](docs/screenshots/e1-11-odoo-intake-record-from-email.png)
-   Low-confidence messages classified as `review` also appear in this intake
-   list for a person to inspect. High-confidence non-invoices classified as
-   `ignore` are excluded. Neither route starts extraction or creates a bill.
+   Low-confidence messages classified as `review` appear in this intake list
+   for a person to inspect. An email with an attachment and explicit invoice
+   wording in its subject, body, or attachment filename is also sent for review
+   if the classifier returns `ignore`. Other high-confidence non-invoices are
+   excluded. Review routing never starts extraction or creates a bill.
 3. Open it: the email body and attachments are in the chatter, the extraction
    status is *Pending Extraction* and the amounts are 0.
    ![Before extraction](docs/screenshots/e1-12-odoo-intake-before-extraction.png)

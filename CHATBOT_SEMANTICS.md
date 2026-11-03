@@ -21,7 +21,7 @@ Blueprint: [TELEGRAM_ODOO_AZURE_AI_ARCHITECTURE.md](./TELEGRAM_ODOO_AZURE_AI_ARC
 | Timezone | `America/Mexico_City`. Date ranges are inclusive of both days, converted to UTC for filtering. |
 | Date range limits | Aggregations: maximum 366 days; default last 30 days. Lists: maximum 10 rows. |
 | Language | Spanish answers; Spanish synonyms accepted in product search. |
-| Company scope | A contact sees only its own company (plus records without a company). |
+| Company scope | Internal, supplier, and customer contacts are assigned one or more allowed companies. Every private Telegram query must explicitly name one or more of those companies; results include company labels and include shared records without a company. |
 | Partner scope | Suppliers and customers see only records of their linked partner (and its children). |
 | Empty or ambiguous | Ambiguous product -> ask the user to choose among at most 5 candidates. No match -> say so. Never guess. |
 
@@ -50,10 +50,17 @@ Notes:
   which expose only published product and website content. These public tools
   do not need a private-data permission.
 - A first-time Telegram sender is provisioned as a `public` contact with no
-  private permissions and must provide a name before choosing whether to share
-  an optional email. Public tools become available after onboarding. An
-  administrator may grant specific permissions; deactivating the contact
-  blocks public and private bot access.
+  company assignment or private permissions and must provide a name before
+  choosing whether to share an optional email. Public tools become available
+  after onboarding. Public contacts cannot be granted private permissions;
+  deactivating the contact blocks public and private bot access.
+- Internal contacts must be assigned one or more allowed companies, and
+  administrators should grant only the permission flags needed for the
+  contact's responsibilities. Suppliers and customers also require a linked
+  partner and remain limited to that partner's records.
+- A private query without an explicitly named allowed company prompts the
+  contact to choose one. Naming any company outside the allow-list denies the
+  whole query. Public catalog and FAQ queries do not require a company.
 - Customers and suppliers get **no inventory access** by default, matching the
   current `ROLE_DEFAULT_PERMISSIONS`. Opening stock to customers is an OPEN
   decision (see section 5).

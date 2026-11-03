@@ -1767,9 +1767,15 @@ zero-permission `public` Telegram Contact and starts onboarding.
   only when voluntarily provided; the prompt explains that Odoo administrators
   can see it. `Omitir` leaves the field blank. Public features become
   available after the user completes this choice.
-- A new public contact has no private permissions. An administrator can grant
-  individual permissions in **Invoice Intake → Telegram Contacts**; private
-  tools remain scoped to that contact's partner and company.
+- A new public contact has no company assignment or private permissions, and
+  public contacts cannot be granted private permissions. Internal contacts
+  must be assigned one or more allowed companies. Suppliers and customers also
+  need a linked partner and remain limited to that partner's records.
+- Every private Telegram query must explicitly name one or more allowed
+  companies. If none is named, the bot asks the user to choose; if an
+  unauthorized company is named, the query is denied. Company-specific results
+  are labelled by company. Public catalog and FAQ queries do not require a
+  company.
 - Disabling **Bot access** blocks all bot features, including public answers
   and voice. Archived contacts are found by Telegram ID and are never
   recreated or reactivated automatically; an administrator can use the
@@ -1808,9 +1814,12 @@ use Azure OpenAI.
 3. From the onboarded public contact, ask a public product question by text
    and voice. Confirm the reply contains text and audio, and that stock, costs,
    margins, sales, invoices, and customer data are not disclosed.
-4. Grant a specific private permission from the Odoo contact record. Confirm
-   the corresponding query works; revoke it and confirm the query is denied
-   while public questions continue to work.
+4. Change an authorized test contact to **Internal user**, assign one or more
+   allowed companies, and grant only the needed private permissions. Ask a
+   private question naming an allowed company and confirm results are labelled
+   with that company. Omit the company to confirm the bot asks for it; name an
+   unauthorized company to confirm access is denied. Revoke a permission and
+   confirm the query is denied while public questions continue to work.
 5. Disable **Bot access** for a contact and confirm even public text and voice
    requests are denied. Send an invoice attachment as a first message and
    confirm onboarding does not download or retain it.

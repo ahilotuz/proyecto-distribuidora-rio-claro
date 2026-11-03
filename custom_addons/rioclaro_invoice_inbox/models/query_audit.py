@@ -19,6 +19,13 @@ class AssistedQueryAudit(models.Model):
         index=True,
     )
     company_id = fields.Many2one("res.company", index=True)
+    company_ids = fields.Many2many(
+        "res.company",
+        relation="rioclaro_assisted_query_audit_company_rel",
+        column1="audit_id",
+        column2="company_id",
+        string="Queried Companies",
+    )
     source_message_id = fields.Char(required=True, index=True, copy=False)
     input_type = fields.Selection(
         [("text", "Text"), ("voice", "Voice")],
@@ -39,6 +46,7 @@ class AssistedQueryAudit(models.Model):
             ("allowed", "Allowed"),
             ("denied", "Denied"),
             ("rate_limited", "Rate Limited"),
+            ("scope_required", "Company Scope Required"),
             ("invalid", "Invalid Request"),
             ("error", "Error"),
         ],
@@ -62,15 +70,22 @@ class AssistedQueryAudit(models.Model):
         contact: models.Model | None = None,
         tool: str | None = None,
         input_type: str = "text",
+        company_ids: list[int] | tuple[int, ...] | None = None,
     ) -> models.Model:
         """Create an audit entry without persisting request or response text."""
+        selected_company_ids = list(company_ids or [])
         return self.sudo().create(
             {
                 "telegram_user_id": str(telegram_user_id),
                 "source_message_id": source_message_id,
                 "outcome": outcome,
                 "contact_id": contact.id if contact else False,
-                "company_id": contact.company_id.id if contact else False,
+                "company_id": (
+                    selected_company_ids[0]
+                    if selected_company_ids
+                    else contact.company_id.id if contact else False
+                ),
+                "company_ids": [(6, 0, selected_company_ids)],
                 "input_type": input_type if input_type in {"text", "voice"} else "text",
                 "tool": (
                     tool

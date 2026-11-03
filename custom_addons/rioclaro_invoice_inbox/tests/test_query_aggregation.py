@@ -122,6 +122,30 @@ class TestQueryAggregation(TransactionCase):
         order.company_id = other
         self.assertEqual(self._rows(12, "aggregate_sales"), [])
 
+    def test_internal_multi_company_sales_are_labelled_and_scoped(self):
+        other = self.env["res.company"].create({"name": "Agg Multi Co"})
+        self.internal.allowed_company_ids = [
+            (6, 0, [self.env.company.id, other.id])
+        ]
+        self._sale(self.customer_a, 2, "2026-01-10 12:00:00")
+        other_order = self._sale(self.customer_b, 3, "2026-01-11 12:00:00")
+        other_order.company_id = other
+
+        rows = self._rows(11, "aggregate_sales")
+
+        by_company = {row["company"]: row["untaxed"] for row in rows}
+        self.assertEqual(by_company[self.env.company.name], 200.0)
+        self.assertEqual(by_company[other.name], 300.0)
+
+    def test_service_rejects_an_unassigned_company_selection(self):
+        other = self.env["res.company"].create({"name": "Agg Unauthorized Co"})
+
+        result = self.service.run_tool(
+            11, "aggregate_sales", RANGE, company_ids=[other.id]
+        )
+
+        self.assertEqual(result, {"ok": False, "error": "denied"})
+
     def test_empty_result_is_empty_list(self):
         self.assertEqual(self._rows(12, "aggregate_sales"), [])
         self.assertEqual(self._rows(13, "aggregate_purchases"), [])

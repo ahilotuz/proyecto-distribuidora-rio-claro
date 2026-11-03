@@ -127,7 +127,11 @@ class QueryService(models.AbstractModel):
 
     @api.model
     def run_tool(
-        self, telegram_user_id: int | str, tool: str, text: str = ""
+        self,
+        telegram_user_id: int | str,
+        tool: str,
+        text: str = "",
+        company_ids: list[int] | tuple[int, ...] | None = None,
     ) -> dict[str, Any]:
         """Run a registered tool on behalf of a Telegram contact.
 
@@ -135,6 +139,9 @@ class QueryService(models.AbstractModel):
             telegram_user_id: Numeric Telegram ID of the requester.
             tool: A key of ``TOOL_REGISTRY``.
             text: Optional free-text argument (product name, order reference).
+            company_ids: Selected companies. Omitted values retain the contact's
+                complete allow-list for trusted internal callers; Telegram passes
+                only companies explicitly named in the question.
 
         Returns:
             ``{"ok": True, "tool": ..., "rows": [...]}`` or
@@ -148,18 +155,45 @@ class QueryService(models.AbstractModel):
         permission, method_name = entry
         contacts = self.env["rioclaro.telegram.contact"]
         contact = contacts.get_active_contact(telegram_user_id)
-        if not contact or not contact[permission]:
+        if not contact or contact.role == "public" or not contact[permission]:
+            return {"ok": False, "error": "denied"}
+        if company_ids is not None and not isinstance(company_ids, (list, tuple)):
+            return {"ok": False, "error": "denied"}
+        selected_company_ids = list(
+            company_ids
+            if company_ids is not None
+            else contact.allowed_company_ids.ids
+        )
+        if any(
+            not isinstance(company_id, int) or isinstance(company_id, bool)
+            for company_id in selected_company_ids
+        ):
+            return {"ok": False, "error": "denied"}
+        selected_company_ids = list(dict.fromkeys(selected_company_ids))
+        allowed_company_ids = set(contact.allowed_company_ids.ids)
+        if (
+            not selected_company_ids
+            or not set(selected_company_ids).issubset(allowed_company_ids)
+        ):
             return {"ok": False, "error": "denied"}
         clean_text = (text or "").strip()
         if len(clean_text) > MAX_TEXT_LENGTH:
             return {"ok": False, "error": "invalid_input"}
-        scoped = self._with_query_language()
+        scoped = self._with_query_language().with_context(
+            telegram_company_ids=selected_company_ids,
+            allowed_company_ids=selected_company_ids,
+        )
         method: Callable[..., list[dict[str, Any]]] = getattr(scoped, method_name)
         try:
             rows = method(contact, clean_text)
         except ValueError:
             return {"ok": False, "error": "invalid_input"}
-        return {"ok": True, "tool": tool, "rows": rows}
+        return {
+            "ok": True,
+            "tool": tool,
+            "rows": rows,
+            "company_ids": selected_company_ids,
+        }
 
     @api.model
     def run_public_tool(self, tool: str, text: str = "") -> dict[str, Any]:
@@ -427,8 +461,34 @@ class QueryService(models.AbstractModel):
         return [("partner_id", "child_of", commercial.id)]
 
     @api.model
+    def _selected_companies(self, contact: models.Model) -> models.Model:
+        """Return validated selected companies from the private query context."""
+        selected_ids = self.env.context.get("telegram_company_ids")
+        allowed_ids = set(contact.allowed_company_ids.ids)
+        if not selected_ids:
+            selected_ids = contact.allowed_company_ids.ids
+        if (
+            not isinstance(selected_ids, (list, tuple))
+            or any(
+                not isinstance(company_id, int) or isinstance(company_id, bool)
+                for company_id in selected_ids
+            )
+            or not set(selected_ids).issubset(allowed_ids)
+        ):
+            return self.env["res.company"]
+        return self.env["res.company"].sudo().browse(selected_ids).exists()
+
+    @api.model
     def _company_scope(self, contact: models.Model) -> list[tuple]:
-        return [("company_id", "in", [False, contact.company_id.id])]
+        company_ids = self._selected_companies(contact).ids
+        if not company_ids:
+            return [("company_id", "in", [])]
+        return [("company_id", "in", [False, *company_ids])]
+
+    @api.model
+    def _company_label(self, contact: models.Model) -> str:
+        """Label the selected companies represented by a result row."""
+        return ", ".join(self._selected_companies(contact).mapped("name"))
 
     @api.model
     def _tool_stock_by_product(
@@ -439,7 +499,6 @@ class QueryService(models.AbstractModel):
         products = (
             self.env["product.product"]
             .sudo()
-            .with_company(contact.company_id)
             .search(
                 [
                     "&",
@@ -459,6 +518,7 @@ class QueryService(models.AbstractModel):
                 "on_hand": product.qty_available,
                 "available": product.free_qty,
                 "uom": product.uom_id.name,
+                "company": self._company_label(contact),
             }
             for product in products
         ]
@@ -484,7 +544,7 @@ class QueryService(models.AbstractModel):
         """
         if not text:
             return []
-        products = self.env["product.product"].sudo().with_company(contact.company_id)
+        products = self.env["product.product"].sudo()
         base: list = [("is_storable", "=", True)] + self._company_scope(contact)
         exact = products.search(
             base + [("default_code", "=ilike", text)], limit=MAX_CANDIDATES
@@ -503,6 +563,7 @@ class QueryService(models.AbstractModel):
             {
                 "product_id": product.id,
                 "name": product.display_name,
+                "company": product.company_id.name if product.company_id else "Shared",
                 "sku": product.default_code or "",
                 "category": product.categ_id.display_name or "",
                 "match": match,
@@ -527,11 +588,12 @@ class QueryService(models.AbstractModel):
             return []
         product_id = int(parts[0])
         warehouse_id = int(parts[1]) if len(parts) == 2 else 0
-        company = contact.company_id
+        companies = self._selected_companies(contact)
+        company_ids = companies.ids
         product = (
             self.env["product.product"]
             .sudo()
-            .with_company(company)
+            .with_context(allowed_company_ids=company_ids)
             .search(
                 [("id", "=", product_id), ("is_storable", "=", True)]
                 + self._company_scope(contact),
@@ -540,31 +602,45 @@ class QueryService(models.AbstractModel):
         )
         if not product:
             return []
-        warehouse_name = ""
         if warehouse_id:
             warehouse = (
                 self.env["stock.warehouse"]
                 .sudo()
                 .search(
-                    [("id", "=", warehouse_id), ("company_id", "=", company.id)],
+                    [
+                        ("id", "=", warehouse_id),
+                        ("company_id", "in", company_ids),
+                    ],
                     limit=1,
                 )
             )
             if not warehouse:
                 return []
-            product = product.with_context(warehouse_id=warehouse.id)
-            warehouse_name = warehouse.name
-        return [
-            {
-                "product_id": product.id,
-                "product": product.display_name,
-                "warehouse": warehouse_name or "all",
-                "on_hand": product.qty_available,
-                "free": product.free_qty,
-                "forecast": product.virtual_available,
-                "uom": product.uom_id.name,
-            }
-        ]
+            selected_companies = companies.filtered(
+                lambda selected: selected.id == warehouse.company_id.id
+            )
+        else:
+            selected_companies = companies
+        rows = []
+        for company in selected_companies:
+            scoped_product = product.with_company(company).with_context(
+                allowed_company_ids=[company.id]
+            )
+            if warehouse_id:
+                scoped_product = scoped_product.with_context(warehouse_id=warehouse.id)
+            rows.append(
+                {
+                    "product_id": product.id,
+                    "product": product.display_name,
+                    "warehouse": warehouse.name if warehouse_id else "all",
+                    "company": company.name,
+                    "on_hand": scoped_product.qty_available,
+                    "free": scoped_product.free_qty,
+                    "forecast": scoped_product.virtual_available,
+                    "uom": product.uom_id.name,
+                }
+            )
+        return rows
 
     @api.model
     def _aggregate_orders(
@@ -574,7 +650,7 @@ class QueryService(models.AbstractModel):
         states: list[str],
         period: DateRange,
     ) -> list[dict[str, Any]]:
-        """Sum confirmed orders per currency; Odoo, not the model, does the math."""
+        """Sum confirmed orders per company and currency."""
         domain = (
             self._partner_scope(contact)
             + self._company_scope(contact)
@@ -586,11 +662,12 @@ class QueryService(models.AbstractModel):
         )
         groups = self.env[model].sudo()._read_group(
             domain,
-            ["currency_id"],
+            ["company_id", "currency_id"],
             ["amount_untaxed:sum", "amount_total:sum", "__count"],
         )
         return [
             {
+                "company": company.name if company else "",
                 "currency": currency.name,
                 "count": count,
                 "untaxed": currency.round(untaxed),
@@ -598,7 +675,7 @@ class QueryService(models.AbstractModel):
                 "from": str(period.start),
                 "to": str(period.end),
             }
-            for currency, untaxed, total, count in groups
+            for company, currency, untaxed, total, count in groups
         ]
 
     @api.model
@@ -645,16 +722,17 @@ class QueryService(models.AbstractModel):
         )
         groups = self.env["account.move"].sudo()._read_group(
             domain,
-            ["move_type", "currency_id"],
+            ["company_id", "move_type", "currency_id"],
             ["amount_untaxed:sum", "amount_total:sum", "__count"],
         )
-        totals: dict[tuple[str, str], dict[str, Any]] = {}
-        for move_type, currency, untaxed, total, count in groups:
+        totals: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for company, move_type, currency, untaxed, total, count in groups:
             kind = "customer" if move_type.startswith("out_") else "vendor"
             sign = -1 if move_type.endswith("_refund") else 1
             row = totals.setdefault(
-                (kind, currency.name),
+                (company.name if company else "", kind, currency.name),
                 {
+                    "company": company.name if company else "",
                     "kind": kind,
                     "currency": currency.name,
                     "documents": 0,
@@ -679,13 +757,15 @@ class QueryService(models.AbstractModel):
     @api.model
     def _sale_line_domain(self, contact: models.Model, period: DateRange) -> list[tuple]:
         """Confirmed sale lines in ``period`` limited to the contact's scope."""
+        selected_company_ids = self._selected_companies(contact).ids
+        company_ids = [False, *selected_company_ids] if selected_company_ids else []
         return [
             ("state", "in", ["sale", "done"]),
             ("display_type", "=", False),
             ("product_id", "!=", False),
             ("order_id.date_order", ">=", period.start_utc),
             ("order_id.date_order", "<", period.end_utc_exclusive),
-            ("order_id.company_id", "in", [False, contact.company_id.id]),
+            ("order_id.company_id", "in", company_ids),
         ] + [
             ("order_id." + leaf[0], leaf[1], leaf[2]) for leaf in self._partner_scope(contact)
         ]
@@ -698,13 +778,14 @@ class QueryService(models.AbstractModel):
         period = parse_date_range(text)
         groups = self.env["sale.order.line"].sudo()._read_group(
             self._sale_line_domain(contact, period),
-            ["product_id", "currency_id"],
+            ["company_id", "product_id", "currency_id"],
             ["product_uom_qty:sum", "price_subtotal:sum"],
             order="price_subtotal:sum desc",
             limit=MAX_RESULTS,
         )
         return [
             {
+                "company": company.name if company else "",
                 "product": product.display_name,
                 "units": quantity,
                 "untaxed": currency.round(untaxed),
@@ -712,7 +793,7 @@ class QueryService(models.AbstractModel):
                 "from": str(period.start),
                 "to": str(period.end),
             }
-            for product, currency, quantity, untaxed in groups
+            for company, product, currency, quantity, untaxed in groups
         ]
 
     @api.model
@@ -730,25 +811,26 @@ class QueryService(models.AbstractModel):
             current.start - timedelta(days=days), current.start - timedelta(days=1)
         )
         now_rows = {
-            row["currency"]: row
+            (row["company"], row["currency"]): row
             for row in self._aggregate_orders(
                 contact, "sale.order", ["sale", "done"], current
             )
         }
         before_rows = {
-            row["currency"]: row
+            (row["company"], row["currency"]): row
             for row in self._aggregate_orders(
                 contact, "sale.order", ["sale", "done"], previous
             )
         }
         rows = []
-        for currency in sorted(set(now_rows) | set(before_rows)):
-            now = now_rows.get(currency, {})
-            before = before_rows.get(currency, {})
+        for company, currency in sorted(set(now_rows) | set(before_rows)):
+            now = now_rows.get((company, currency), {})
+            before = before_rows.get((company, currency), {})
             now_total = now.get("untaxed", 0.0)
             before_total = before.get("untaxed", 0.0)
             rows.append(
                 {
+                    "company": company,
                     "currency": currency,
                     "current_from": str(current.start),
                     "current_to": str(current.end),
@@ -783,12 +865,14 @@ class QueryService(models.AbstractModel):
         lines = self.env["sale.order.line"].sudo().search(
             self._sale_line_domain(contact, period), limit=5000
         )
-        categories: dict[tuple[str, str], dict[str, Any]] = {}
+        categories: dict[tuple[str, str, str], dict[str, Any]] = {}
         for line in lines:
             category = line.product_id.categ_id.display_name or ""
+            company = line.order_id.company_id
             row = categories.setdefault(
-                (category, line.currency_id.name),
+                (company.name, category, line.currency_id.name),
                 {
+                    "company": company.name,
                     "category": category,
                     "currency": line.currency_id.name,
                     "revenue": 0.0,
@@ -796,7 +880,7 @@ class QueryService(models.AbstractModel):
                     "lines_without_cost": 0,
                 },
             )
-            cost_each = line.product_id.with_company(contact.company_id).standard_price
+            cost_each = line.product_id.with_company(company).standard_price
             if not cost_each:
                 row["lines_without_cost"] += 1
                 continue
@@ -833,12 +917,19 @@ class QueryService(models.AbstractModel):
             ("payment_state", "in", ["not_paid", "partial"]),
         ]
         moves = self.env["account.move"].sudo().search(domain)
-        totals: dict[tuple[str, str], dict[str, Any]] = {}
+        totals: dict[tuple[str, str, str], dict[str, Any]] = {}
         for move in moves:
             kind = "receivable" if move.move_type.startswith("out_") else "payable"
+            company = move.company_id.name
             row = totals.setdefault(
-                (kind, move.currency_id.name),
-                {"kind": kind, "currency": move.currency_id.name, "open": 0.0, "overdue": 0.0},
+                (company, kind, move.currency_id.name),
+                {
+                    "company": company,
+                    "kind": kind,
+                    "currency": move.currency_id.name,
+                    "open": 0.0,
+                    "overdue": 0.0,
+                },
             )
             sign = -1 if move.move_type.endswith("_refund") else 1
             row["open"] += sign * move.amount_residual
@@ -895,6 +986,7 @@ class QueryService(models.AbstractModel):
         return [
             {
                 "number": move.name,
+                "company": move.company_id.name,
                 "type": move.move_type,
                 "partner": move.partner_id.name,
                 "date": str(move.invoice_date or ""),
@@ -932,6 +1024,7 @@ class QueryService(models.AbstractModel):
         """Fixed, minimal projection of a sale or purchase order."""
         return {
             "reference": order.name,
+            "company": order.company_id.name,
             "partner": order.partner_id.name,
             "date": str(order.date_order or ""),
             "state": order.state,

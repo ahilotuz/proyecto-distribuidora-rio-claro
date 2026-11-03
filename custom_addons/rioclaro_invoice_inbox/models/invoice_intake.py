@@ -861,6 +861,8 @@ class SupplierInvoiceIntake(models.Model):
             )
         outcome = {
             "denied": "denied",
+            "company_forbidden": "denied",
+            "company_required": "scope_required",
             "invalid_question": "invalid",
             "invalid_input": "invalid",
             "ai_not_configured": "error",
@@ -874,6 +876,7 @@ class SupplierInvoiceIntake(models.Model):
             contact=contact,
             tool=tool,
             input_type=input_type,
+            company_ids=result.get("company_ids"),
         )
         if result.get("ok"):
             reply = str(result.get("answer", ""))[:_TELEGRAM_MAX_REPLY_LENGTH]
@@ -929,6 +932,30 @@ class SupplierInvoiceIntake(models.Model):
                         "Voice response for Telegram query %s could not be delivered.",
                         message.message_id,
                     )
+        elif result.get("error") in {"company_required", "company_forbidden"}:
+            allowed_companies = result.get("allowed_companies", [])
+            company_list = ", ".join(allowed_companies)
+            if result.get("error") == "company_required":
+                if company_list:
+                    reply = (
+                        "Para consultar datos internos, indica el nombre de una o "
+                        f"más empresas autorizadas: {company_list}."
+                    )
+                else:
+                    reply = (
+                        "Tu cuenta no tiene empresas asignadas para consultas "
+                        "privadas. Solicita acceso a un administrador."
+                    )
+            elif company_list:
+                reply = (
+                    "No tienes acceso a la empresa indicada. Puedes consultar: "
+                    f"{company_list}."
+                )
+            else:
+                reply = (
+                    "No tienes acceso a la empresa indicada. Solicita acceso a un "
+                    "administrador."
+                )
         elif outcome == "denied":
             reply = "No tienes permiso para consultar esos datos."
         elif outcome == "invalid":

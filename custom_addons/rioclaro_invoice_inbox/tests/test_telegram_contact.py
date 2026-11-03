@@ -76,15 +76,34 @@ class TestTelegramContact(TransactionCase):
         contact.active = False
         self.assertFalse(self.contacts.is_allowed(106, "can_query_inventory"))
 
-    def test_public_contacts_start_without_permissions_and_can_be_granted_one(self):
+    def test_public_contacts_have_no_private_permissions_or_companies(self):
         contact = self._create("111", "public")
 
         self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
+        self.assertFalse(contact.allowed_company_ids)
         self.assertFalse(self.contacts.is_allowed(111, "can_query_sales"))
 
-        contact.can_query_sales = True
+        with self.assertRaises(ValidationError):
+            contact.can_query_sales = True
 
-        self.assertTrue(self.contacts.is_allowed(111, "can_query_sales"))
+        company_contact = self._create("115", "public")
+        with self.assertRaises(ValidationError):
+            company_contact.allowed_company_ids = [
+                (6, 0, [self.env.company.id])
+            ]
+
+    def test_internal_contact_can_be_assigned_multiple_companies(self):
+        contact = self._create("114", "internal")
+        other_company = self.env["res.company"].create({"name": "Second Company"})
+
+        contact.allowed_company_ids = [
+            (6, 0, [self.env.company.id, other_company.id])
+        ]
+
+        self.assertEqual(
+            set(contact.allowed_company_ids.ids),
+            {self.env.company.id, other_company.id},
+        )
 
     def test_public_contact_is_created_once_and_inactive_records_are_found(self):
         contact, created = self.contacts.get_or_create_public_contact(
@@ -99,6 +118,7 @@ class TestTelegramContact(TransactionCase):
         self.assertEqual(contact.onboarding_state, "awaiting_name")
         self.assertEqual(contact.onboarding_last_message_id, "telegram:555:1")
         self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
+        self.assertFalse(contact.allowed_company_ids)
 
         contact.active = False
         existing, created_again = self.contacts.get_or_create_public_contact(

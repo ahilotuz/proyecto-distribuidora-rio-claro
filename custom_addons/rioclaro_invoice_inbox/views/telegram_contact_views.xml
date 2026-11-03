@@ -25,7 +25,7 @@
                 <field name="email"/>
                 <field name="onboarding_state"/>
                 <field name="partner_id"/>
-                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="allowed_company_ids" widget="many2many_tags"/>
                 <field name="active" widget="boolean_toggle"
                        string="Bot access"/>
             </list>
@@ -46,12 +46,15 @@
                             <field name="partner_id"
                                    required="role in ('supplier', 'customer')"/>
                             <field name="email"/>
-                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="allowed_company_ids"
+                                   widget="many2many_tags"
+                                   invisible="role == 'public'"
+                                   required="role != 'public'"/>
                             <field name="onboarding_state" readonly="1"/>
                             <field name="active" string="Bot access"
                                    help="Disable this contact to block all Telegram bot access."/>
                         </group>
-                        <group string="Permissions">
+                        <group string="Permissions" invisible="role == 'public'">
                             <field name="can_query_inventory"/>
                             <field name="can_query_purchases"/>
                             <field name="can_query_sales"/>

@@ -43,9 +43,13 @@ class TestOrchestrator(TransactionCase):
     def setUp(self):
         super().setUp()
         self.ai = self.env["rioclaro.assisted.query.ai"]
+        self.company_name = self.env.company.name
         self.env["rioclaro.telegram.contact"].create(
             {"name": "Internal test contact", "telegram_user_id": "1", "role": "internal"}
         )
+
+    def _private_question(self, text: str) -> str:
+        return f"{text} en {self.company_name}"
 
     @patch.object(AzureOpenAIClient, "summarize_rows", return_value="• 12 unidades")
     @patch.object(AzureOpenAIClient, "choose_tool")
@@ -55,13 +59,26 @@ class TestOrchestrator(TransactionCase):
     ):
         choose_tool.return_value = _choice("search_products", "agua")
         run_tool.side_effect = [
-            {"ok": True, "rows": [{"product_id": 7, "name": "Agua"}]},
-            {"ok": True, "rows": [{"product_id": 7, "on_hand": 12}]},
+            {
+                "ok": True,
+                "rows": [{"product_id": 7, "name": "Agua"}],
+                "company_ids": [self.env.company.id],
+            },
+            {
+                "ok": True,
+                "rows": [{"product_id": 7, "on_hand": 12}],
+                "company_ids": [self.env.company.id],
+            },
         ]
-        result = self.ai.answer(1, "stock de agua")
+        result = self.ai.answer(1, self._private_question("stock de agua"))
         self.assertEqual(result["tool"], "get_product_stock")
         self.assertEqual(run_tool.call_count, MAX_TOOL_CALLS)
-        run_tool.assert_called_with(1, "get_product_stock", "7")
+        run_tool.assert_called_with(
+            1,
+            "get_product_stock",
+            "7",
+            company_ids=[self.env.company.id],
+        )
         self.assertEqual(result["answer"], "• 12 unidades")
 
     @patch.object(AzureOpenAIClient, "summarize_rows")
@@ -78,7 +95,7 @@ class TestOrchestrator(TransactionCase):
                 {"product_id": 2, "name": "Silla B"},
             ],
         }
-        result = self.ai.answer(1, "stock de silla")
+        result = self.ai.answer(1, self._private_question("stock de silla"))
         self.assertEqual(run_tool.call_count, 1)
         summarize.assert_not_called()
         self.assertIn("Silla A", result["answer"])
@@ -98,7 +115,7 @@ class TestOrchestrator(TransactionCase):
                 {"product": "Silla B", "on_hand": 40.0, "available": 13.0, "uom": "Units"},
             ],
         }
-        result = self.ai.answer(1, "stock de silla")
+        result = self.ai.answer(1, self._private_question("stock de silla"))
         summarize.assert_not_called()
         self.assertIn("Silla A: 26 en existencia, 26 disponibles", result["answer"])
         self.assertIn("Silla B: 40 en existencia, 13 disponibles", result["answer"])
@@ -110,7 +127,7 @@ class TestOrchestrator(TransactionCase):
     def test_no_rows_never_reaches_the_model(self, run_tool, choose_tool, summarize):
         choose_tool.return_value = _choice("aggregate_sales", "30")
         run_tool.return_value = {"ok": True, "rows": []}
-        result = self.ai.answer(1, "cuánto vendimos")
+        result = self.ai.answer(1, self._private_question("cuánto vendimos"))
         summarize.assert_not_called()
         self.assertEqual(result["answer"], NO_RESULTS_MESSAGE)
 
@@ -125,7 +142,7 @@ class TestOrchestrator(TransactionCase):
             {"ok": True, "rows": [{"product_id": 7, "name": "Agua"}]},
             {"ok": False, "error": "denied"},
         ]
-        result = self.ai.answer(1, "stock de agua")
+        result = self.ai.answer(1, self._private_question("stock de agua"))
         self.assertLessEqual(run_tool.call_count, MAX_TOOL_CALLS)
         self.assertEqual(result["tool"], "search_products")
         summarize.assert_not_called()
@@ -136,9 +153,36 @@ class TestOrchestrator(TransactionCase):
     def test_denied_tool_never_calls_summarizer(self, run_tool, choose_tool, summarize):
         choose_tool.return_value = _choice("aggregate_sales", "30")
         run_tool.return_value = {"ok": False, "error": "denied"}
-        result = self.ai.answer(1, "ventas")
+        result = self.ai.answer(1, self._private_question("ventas"))
         self.assertEqual(result["error"], "denied")
         summarize.assert_not_called()
+
+    @patch.object(AzureOpenAIClient, "choose_tool")
+    @patch.object(QueryService, "run_tool")
+    def test_private_question_without_company_prompts_without_query(
+        self, run_tool, choose_tool
+    ):
+        choose_tool.return_value = _choice("aggregate_sales", "esta semana")
+
+        result = self.ai.answer(1, "¿cuánto vendimos esta semana?")
+
+        self.assertEqual(result["error"], "company_required")
+        self.assertIn(self.company_name, result["allowed_companies"])
+        run_tool.assert_not_called()
+
+    @patch.object(AzureOpenAIClient, "choose_tool")
+    @patch.object(QueryService, "run_tool")
+    def test_private_question_for_unauthorized_company_is_denied(
+        self, run_tool, choose_tool
+    ):
+        unauthorized = self.env["res.company"].create({"name": "Unauthorized Branch"})
+        choose_tool.return_value = _choice("aggregate_sales", "esta semana")
+
+        result = self.ai.answer(1, "ventas de Unauthorized Branch esta semana")
+
+        self.assertEqual(result["error"], "company_forbidden")
+        self.assertNotIn(unauthorized.name, result["allowed_companies"])
+        run_tool.assert_not_called()
 
     @patch.object(AzureOpenAIClient, "summarize_rows", return_value="• Información pública")
     @patch.object(AzureOpenAIClient, "choose_public_tool")

@@ -224,6 +224,7 @@ class TestTelegramIntake(TransactionCase):
             "tool": "recent_sales",
             "rows": [{"reference": "S0001"}],
             "answer": "Tus ventas recientes: S0001.",
+            "company_ids": [self.env.company.id],
         }
 
         self.assertEqual(self.intake.cron_poll_telegram(), 0)
@@ -236,6 +237,7 @@ class TestTelegramIntake(TransactionCase):
         self.assertEqual(audit.telegram_user_id, "777")
         self.assertEqual(audit.tool, "recent_sales")
         self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.company_ids, self.env.company)
         self.assertNotIn("question", audit._fields)
         self.assertNotIn("response", audit._fields)
 
@@ -823,6 +825,41 @@ class TestTelegramIntake(TransactionCase):
         )
         self.assertEqual(audit.outcome, "invalid")
         self.assertEqual(audit.tool, "product_margin")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    def test_private_query_without_company_prompts_for_allowed_company(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        company_name = self.env.company.name
+        answer_mock.return_value = {
+            "ok": False,
+            "error": "company_required",
+            "allowed_companies": [company_name],
+            "tool": "aggregate_sales",
+        }
+        updates_mock.return_value = (
+            209,
+            [
+                _text_message(
+                    message_id=57,
+                    sender_id=777,
+                    text="¿cuánto vendimos esta semana?",
+                )
+            ],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        self.assertIn(company_name, send_mock.call_args.args[1])
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:57")]
+        )
+        self.assertEqual(audit.outcome, "scope_required")
+        self.assertEqual(audit.tool, "aggregate_sales")
+        self.assertFalse(audit.company_ids)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")

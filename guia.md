@@ -1754,6 +1754,12 @@ as product descriptions mentioning dishwashing.
 - Existing Telegram query auditing and per-contact rate limits also apply to
   public questions.
 
+Active Telegram contacts can use `/start`, `/help`, `/ayuda`, or ask
+`¿Qué puedes hacer?` to see a capability summary. It always includes public
+product and website-content questions, then lists only private queries and
+invoice submission enabled for that contact in Odoo. Unknown or inactive
+contacts remain denied, and the help response does not use Azure OpenAI.
+
 ### Verify after deployment
 
 1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance.

@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+import re
+import unicodedata
 from datetime import timedelta
 from hashlib import sha256
 from typing import Literal
@@ -28,6 +30,27 @@ _TELEGRAM_RATE_WINDOW_PARAM = "rioclaro_invoice_inbox.telegram_query_window_minu
 _TELEGRAM_QUERY_RATE_LIMIT = 5
 _TELEGRAM_QUERY_WINDOW_MINUTES = 5
 _TELEGRAM_MAX_REPLY_LENGTH = 4000
+_TELEGRAM_HELP_COMMANDS = frozenset({"/start", "/help", "/ayuda"})
+_TELEGRAM_HELP_QUESTIONS = frozenset(
+    {
+        "ayuda",
+        "como me puedes ayudar",
+        "que puedes hacer",
+        "que puedes hacer por mi",
+        "que puedo consultar",
+        "que consultas puedes hacer",
+        "que sabes hacer",
+        "menu",
+    }
+)
+_TELEGRAM_PRIVATE_CAPABILITY_LABELS = (
+    ("can_query_inventory", "Consultar existencias y disponibilidad de productos"),
+    ("can_query_purchases", "Consultar compras"),
+    ("can_query_sales", "Consultar ventas"),
+    ("can_query_billing", "Consultar facturas y saldos"),
+    ("can_query_margins", "Consultar márgenes y costos"),
+    ("can_check_order_status", "Consultar el estado de pedidos"),
+)
 
 
 class SupplierInvoiceIntake(models.Model):
@@ -250,6 +273,58 @@ class SupplierInvoiceIntake(models.Model):
         return self.env["rioclaro.telegram.contact"].is_allowed(
             sender_id, "can_submit_vendor_invoice"
         )
+
+    @api.model
+    def _is_telegram_help_request(self, text: str | None) -> bool:
+        """Return whether text is a supported help command or capability question."""
+        if not text:
+            return False
+        command = text.strip().split(maxsplit=1)[0].split("@", 1)[0].casefold()
+        if command in _TELEGRAM_HELP_COMMANDS:
+            return True
+        normalized = unicodedata.normalize("NFD", text.casefold())
+        normalized = "".join(
+            character
+            for character in normalized
+            if not unicodedata.combining(character)
+        )
+        normalized = " ".join(re.sub(r"[^\w\s]", " ", normalized).split())
+        return normalized in _TELEGRAM_HELP_QUESTIONS
+
+    @api.model
+    def _telegram_help_response(self, contact: models.Model) -> str:
+        """Describe public features and only private features enabled for contact."""
+        response_lines = [
+            "Puedo recomendar productos del catálogo público y responder preguntas "
+            "sobre información publicada en el sitio web.",
+            "",
+            "Para tu cuenta están habilitadas estas funciones:",
+        ]
+        capabilities = [
+            label
+            for permission, label in _TELEGRAM_PRIVATE_CAPABILITY_LABELS
+            if contact[permission]
+        ]
+        if contact.can_submit_vendor_invoice:
+            capabilities.append("Enviar facturas de proveedor para revisión")
+        response_lines.extend(
+            f"• {capability}" for capability in capabilities
+        )
+        if not capabilities:
+            response_lines.append(
+                "• No tienes habilitadas consultas de datos privados ni el envío "
+                "de facturas."
+            )
+        response_lines.extend(
+            [
+                "",
+                "Las consultas privadas se limitan a los permisos y registros "
+                "asignados a tu cuenta.",
+                "Puedes escribir /ayuda en cualquier momento. También puedes "
+                "enviar preguntas por texto o nota de voz.",
+            ]
+        )
+        return "\n".join(response_lines)
 
     @api.model
     def create_from_telegram(
@@ -528,9 +603,17 @@ class SupplierInvoiceIntake(models.Model):
                 )
                 return
 
-        result = self.env["rioclaro.assisted.query.ai"].answer(
-            message.sender_id, question
-        )
+        if self._is_telegram_help_request(question):
+            result = {
+                "ok": True,
+                "tool": "help",
+                "rows": [],
+                "answer": self._telegram_help_response(contact),
+            }
+        else:
+            result = self.env["rioclaro.assisted.query.ai"].answer(
+                message.sender_id, question
+            )
         outcome = {
             "denied": "denied",
             "invalid_question": "invalid",

@@ -13,6 +13,7 @@ from odoo.addons.rioclaro_invoice_inbox.models.telegram_client import (
     TelegramFile,
     TelegramMessage,
 )
+from odoo.addons.rioclaro_invoice_inbox.models.telegram_contact import PERMISSION_FIELDS
 from odoo.addons.rioclaro_invoice_inbox.models.query_service import TOOL_REGISTRY
 from odoo.tests import TransactionCase, tagged
 
@@ -291,6 +292,102 @@ class TestTelegramIntake(TransactionCase):
         )
         self.assertEqual(audit.outcome, "allowed")
         self.assertEqual(audit.tool, "public_catalog")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    def test_help_lists_public_features_without_private_permissions(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Public Telegram contact",
+                "telegram_user_id": "778",
+                "role": "internal",
+                **{permission: False for permission in PERMISSION_FIELDS},
+            }
+        )
+        updates_mock.return_value = (
+            208,
+            [
+                _text_message(
+                    message_id=54,
+                    sender_id=778,
+                    text="¿Qué puedes hacer?",
+                )
+            ],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_not_called()
+        response = send_mock.call_args.args[1]
+        self.assertIn("catálogo público", response)
+        self.assertIn("información publicada", response)
+        self.assertIn("No tienes habilitadas consultas de datos privados", response)
+        self.assertNotIn("Consultar ventas", response)
+        self.assertNotIn("Enviar facturas de proveedor", response)
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:54")]
+        )
+        self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.tool, "help")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    def test_help_only_lists_private_features_granted_to_contact(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Sales Telegram contact",
+                "telegram_user_id": "778",
+                "role": "internal",
+                **{permission: False for permission in PERMISSION_FIELDS},
+                "can_query_sales": True,
+            }
+        )
+        updates_mock.return_value = (
+            209,
+            [
+                _text_message(
+                    message_id=55,
+                    sender_id=778,
+                    text="/help@RioClaroBot",
+                )
+            ],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_not_called()
+        response = send_mock.call_args.args[1]
+        self.assertIn("Consultar ventas", response)
+        self.assertNotIn("Consultar compras", response)
+        self.assertNotIn("Consultar existencias", response)
+        self.assertNotIn("facturas para revisión", response)
+        self.assertNotIn("No tienes habilitadas consultas de datos privados", response)
+        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("source_message_id", "=", "telegram:555:55")]
+        )
+        self.assertEqual(audit.tool, "help")
+
+    def test_help_recognizes_commands_and_common_questions(self):
+        for text in (
+            "/start",
+            "/help",
+            "/ayuda",
+            "/ayuda@RioClaroBot",
+            "¿Qué puedes hacer?",
+            "¿Qué puedo consultar?",
+            "menú",
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(self.intake._is_telegram_help_request(text))
+        self.assertFalse(self.intake._is_telegram_help_request("ventas de abril"))
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")

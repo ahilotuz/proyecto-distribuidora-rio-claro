@@ -12,10 +12,13 @@ The Odoo invoice inbox add-on can call this endpoint before creating an intake
 record. It retains high-confidence `supplier_invoice`/`inspect_attachments`
 emails and `review` emails in the intake queue. Review emails require a human
 to decide whether they are invoices; extraction and bill creation remain
-manual. High-confidence `not_invoice`/`ignore` emails are excluded. This is
-not attachment inspection: the Function does not download or verify files,
-confirm an invoice document, or extract invoice data. Treat the result as an
-email-screening practice integration only, not production invoice validation.
+manual. As a conservative fallback, an attached email with explicit invoice
+cues in its subject, body, or attachment filename is routed to `review` even
+if the classifier says `ignore`. High-confidence `not_invoice`/`ignore`
+messages without invoice cues are excluded. This is not attachment inspection:
+the Function does not download or verify files, confirm an invoice document,
+or extract invoice data. Treat the result as an email-screening practice
+integration only, not production invoice validation.
 
 ## Classifier setup
 
@@ -86,7 +89,9 @@ Initially configure all three routes as non-destructive test branches that log
 message IDs only (not email bodies or attachments). Once evaluated, the direct
 Odoo IMAP integration handles them as follows:
 
-1. `ignore`: leave the message in its original inbox; do not send it to Odoo.
+1. `ignore`: leave the message in its original inbox; do not send it to Odoo
+   unless it has an attachment and an explicit invoice cue, in which case Odoo
+   routes it to manual review.
 2. `review`: create an intake record for a person to review; do not extract
    data or create a bill automatically.
 3. `inspect_attachments`: create an intake record with the original email and

@@ -1,6 +1,9 @@
 import json
 import logging
 import os
+import re
+import unicodedata
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -14,6 +17,13 @@ _INTAKE_MODEL = "rioclaro.invoice.intake"
 _SCREENING_ENABLED_PARAM = "rioclaro_invoice_inbox.screening_enabled"
 _SCREENING_URL_PARAM = "rioclaro_invoice_inbox.screening_url"
 _SCREENING_TIMEOUT_SECONDS = 35
+_INVOICE_EMAIL_CUES = (
+    "factura",
+    "invoice",
+    "cfdi",
+    "comprobante fiscal",
+    "documento fiscal",
+)
 
 
 class MailThread(models.AbstractModel):
@@ -136,8 +146,42 @@ class MailThread(models.AbstractModel):
             or not 0.0 <= confidence <= 1.0
         ):
             raise UserError(_("Email screening returned an invalid classification."))
+        if route == "ignore" and self._has_invoice_email_signal(message_dict):
+            _logger.info(
+                "Overriding email screening ignore for invoice-like email "
+                "Message-ID %s; sending it for manual review.",
+                message_dict.get("message_id", "<missing>"),
+            )
+            route = "review"
         return {
             "route": route,
             "label": label,
             "confidence": confidence,
         }
+
+    @api.model
+    def _has_invoice_email_signal(self, message_dict: dict[str, Any]) -> bool:
+        """Return whether an attached email contains explicit invoice cues."""
+        attachments = message_dict.get("attachments") or []
+        if not attachments:
+            return False
+
+        text_parts = [
+            str(message_dict.get("subject") or ""),
+            html2plaintext(message_dict.get("body") or ""),
+        ]
+        text_parts.extend(
+            attachment[0]
+            for attachment in attachments
+            if isinstance(attachment, (list, tuple))
+            and attachment
+            and isinstance(attachment[0], str)
+        )
+        text = unicodedata.normalize("NFD", " ".join(text_parts).casefold())
+        text = "".join(
+            character
+            for character in text
+            if not unicodedata.combining(character)
+        )
+        text = f" {re.sub(r'[\W_]+', ' ', text)} "
+        return any(f" {cue} " in text for cue in _INVOICE_EMAIL_CUES)

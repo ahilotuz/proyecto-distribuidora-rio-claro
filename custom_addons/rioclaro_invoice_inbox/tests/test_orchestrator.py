@@ -237,7 +237,7 @@ class TestOrchestrator(TransactionCase):
             {
                 "name": "Public Telegram contact",
                 "telegram_user_id": "2",
-                "role": "internal",
+                "role": "public",
                 **permission_flags,
             }
         )

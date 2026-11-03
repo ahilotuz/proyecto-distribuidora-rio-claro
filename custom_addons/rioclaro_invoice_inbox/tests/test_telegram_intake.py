@@ -163,9 +163,18 @@ class TestTelegramIntake(TransactionCase):
         self.assertEqual(created, 1)
         self.assertTrue(self.intake.search([("source_message_id", "=", "telegram:555:8")]))
         self.assertFalse(self.intake.search([("source_message_id", "=", "telegram:555:9")]))
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.role, "public")
+        self.assertEqual(contact.onboarding_state, "awaiting_name")
         replies = [call.args[1] for call in send_mock.call_args_list]
         self.assertTrue(replies[0].startswith("Recibido"))
-        self.assertEqual(replies[1], "No autorizado.")
+        self.assertIn("nombre", replies[1])
+        self.assertEqual(
+            self.env["rioclaro.assisted.query.audit"].sudo().search(
+                [("source_message_id", "=", "telegram:555:9")]
+            ).tool,
+            "onboarding",
+        )
         self.assertEqual(
             self.env["ir.config_parameter"]
             .sudo()
@@ -235,47 +244,62 @@ class TestTelegramIntake(TransactionCase):
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
     @patch.object(AssistedQueryAI, "answer_public")
-    def test_unknown_text_sender_can_only_use_public_query_path(
+    def test_new_sender_is_created_as_public_and_prompted_for_name(
         self, answer_public_mock, answer_mock, send_mock, updates_mock
     ):
         updates_mock.return_value = (
             204,
-            [
-                _text_message(
-                    sender_id=999,
-                    text="¿Qué productos tienen?",
-                )
-            ],
+            [_text_message(sender_id=999, text="¿Qué puedes hacer?")],
         )
-        answer_public_mock.return_value = {
-            "ok": True,
-            "tool": "public_faq",
-            "rows": [],
-            "answer": "Horario publicado: de lunes a viernes.",
-        }
 
         self.intake.cron_poll_telegram()
 
         answer_mock.assert_not_called()
-        answer_public_mock.assert_called_once_with("¿Qué productos tienen?")
-        send_mock.assert_called_once_with(
-            555, "Horario publicado: de lunes a viernes."
-        )
+        answer_public_mock.assert_not_called()
+        send_mock.assert_called_once()
+        self.assertIn("nombre", send_mock.call_args.args[1])
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.role, "public")
+        self.assertEqual(contact.onboarding_state, "awaiting_name")
+        self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
         audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
             [("source_message_id", "=", "telegram:555:50")]
         )
-        self.assertEqual(audit.outcome, "allowed")
-        self.assertEqual(audit.tool, "public_faq")
-        self.assertFalse(audit.contact_id)
-        self.assertEqual(audit.telegram_user_id, "999")
+        self.assertEqual(audit.tool, "onboarding")
+        self.assertEqual(audit.contact_id, contact)
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    def test_duplicate_first_message_does_not_become_the_users_name(
+        self, send_mock, updates_mock
+    ):
+        first_message = _text_message(
+            message_id=57,
+            sender_id=999,
+            text="¿Qué puedes hacer?",
+        )
+        updates_mock.return_value = (215, [first_message, first_message])
+
+        self.intake.cron_poll_telegram()
+
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.name, "proveedor")
+        self.assertEqual(contact.onboarding_state, "awaiting_name")
+        self.assertEqual(send_mock.call_count, 2)
+        self.assertEqual(
+            self.env["rioclaro.assisted.query.audit"].sudo().search_count(
+                [("source_message_id", "=", "telegram:555:57")]
+            ),
+            1,
+        )
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
-    @patch.object(AssistedQueryAI, "answer_public")
-    def test_unknown_private_question_never_uses_private_query_path(
-        self, answer_public_mock, answer_mock, send_mock, updates_mock
+    def test_first_private_question_is_not_processed_during_onboarding(
+        self, answer_mock, send_mock, updates_mock
     ):
         updates_mock.return_value = (
             210,
@@ -287,59 +311,168 @@ class TestTelegramIntake(TransactionCase):
                 )
             ],
         )
-        answer_public_mock.return_value = {
-            "ok": True,
-            "tool": "public_faq",
-            "rows": [],
-            "answer": "No encontré información pública sobre eso.",
-        }
 
         self.intake.cron_poll_telegram()
 
         answer_mock.assert_not_called()
-        answer_public_mock.assert_called_once_with("¿Cuánto vendimos este mes?")
-        send_mock.assert_called_once_with(
-            555, "No encontré información pública sobre eso."
+        self.assertIn("nombre", send_mock.call_args.args[1])
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
+        self.assertFalse(
+            self.env["rioclaro.assisted.query.audit"].sudo().search(
+                [
+                    ("source_message_id", "=", "telegram:555:56"),
+                    ("tool", "!=", "onboarding"),
+                ]
+            )
         )
-        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
-            [("source_message_id", "=", "telegram:555:56")]
-        )
-        self.assertEqual(audit.tool, "public_faq")
-        self.assertFalse(audit.contact_id)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
-    @patch.object(AssistedQueryAI, "answer_public")
-    def test_unknown_sender_gets_public_help_without_ai(
-        self, answer_public_mock, answer_mock, send_mock, updates_mock
+    def test_name_and_email_skip_unlock_public_information(
+        self, answer_mock, send_mock, updates_mock
     ):
         updates_mock.return_value = (
-            207,
+            211,
             [
+                _text_message(message_id=61, sender_id=999, text="¿Qué puedes hacer?"),
+                _text_message(message_id=62, sender_id=999, text="Ana López"),
+                _text_message(message_id=63, sender_id=999, text="Omitir"),
                 _text_message(
-                    message_id=53,
+                    message_id=64,
                     sender_id=999,
-                    text="¿Qué puedes hacer?",
-                )
+                    text="¿Qué producto venden?",
+                ),
+            ],
+        )
+        answer_mock.return_value = {
+            "ok": True,
+            "tool": "public_catalog",
+            "rows": [],
+            "answer": "Catálogo público.",
+        }
+
+        self.intake.cron_poll_telegram()
+
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.name, "Ana López")
+        self.assertFalse(contact.email)
+        self.assertEqual(contact.onboarding_state, "complete")
+        self.assertFalse(any(contact[field] for field in PERMISSION_FIELDS))
+        answer_mock.assert_called_once_with(999, "¿Qué producto venden?")
+        self.assertEqual(send_mock.call_count, 4)
+        menu_reply = send_mock.call_args_list[2].args[1]
+        self.assertIn("catálogo publicado", menu_reply)
+        self.assertIn("No tienes habilitadas consultas de datos privados", menu_reply)
+        audits = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("telegram_user_id", "=", "999")],
+            order="source_message_id",
+        )
+        self.assertEqual(len(audits), 4)
+        self.assertEqual(audits[-1].tool, "public_catalog")
+        self.assertNotIn("email", audits._fields)
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    def test_invalid_email_can_be_corrected_and_only_valid_email_is_saved(
+        self, send_mock, updates_mock
+    ):
+        updates_mock.return_value = (
+            212,
+            [
+                _text_message(message_id=65, sender_id=999, text="Hola"),
+                _text_message(message_id=66, sender_id=999, text="Ana López"),
+                _text_message(message_id=67, sender_id=999, text="no es correo"),
+                _text_message(
+                    message_id=68,
+                    sender_id=999,
+                    text=" User+tag@Example.com ",
+                ),
             ],
         )
 
         self.intake.cron_poll_telegram()
 
-        answer_mock.assert_not_called()
-        answer_public_mock.assert_not_called()
-        reply = send_mock.call_args.args[1]
-        self.assertIn("información pública", reply)
-        self.assertIn("sin registrar una cuenta", reply)
-        self.assertIn("datos privados", reply)
-        audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
-            [("source_message_id", "=", "telegram:555:53")]
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.email, "user+tag@example.com")
+        self.assertEqual(contact.onboarding_state, "complete")
+        self.assertIn("No pude validar", send_mock.call_args_list[2].args[1])
+        audits = self.env["rioclaro.assisted.query.audit"].sudo().search(
+            [("telegram_user_id", "=", "999")]
         )
-        self.assertEqual(audit.outcome, "allowed")
-        self.assertEqual(audit.tool, "help")
-        self.assertFalse(audit.contact_id)
+        self.assertTrue(all(audit.tool == "onboarding" for audit in audits))
+        self.assertFalse(any("User+tag@Example.com" in str(audit.read()[0]) for audit in audits))
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_SPEECH_ENDPOINT": "https://canadacentral.api.cognitive.microsoft.com/",
+            "RIOCLARO_SPEECH_REGION": "canadacentral",
+            "RIOCLARO_SPEECH_KEY": "fake-speech-key",
+        },
+    )
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "download_file", return_value=b"ogg-audio")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(
+        AzureSpeechClient,
+        "transcribe",
+        side_effect=["Ana López", "Omitir"],
+    )
+    def test_voice_replies_can_complete_onboarding(
+        self, _transcribe_mock, send_mock, download_mock, updates_mock
+    ):
+        updates_mock.return_value = (
+            213,
+            [
+                _voice_message(message_id=69, sender_id=999),
+                _voice_message(message_id=70, sender_id=999),
+                _voice_message(message_id=71, sender_id=999),
+            ],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.name, "Ana López")
+        self.assertFalse(contact.email)
+        self.assertEqual(contact.onboarding_state, "complete")
+        self.assertEqual(download_mock.call_count, 2)
+        download_mock.assert_any_call("voice-1")
+        self.assertEqual(send_mock.call_count, 3)
+        self.assertIn("nombre", send_mock.call_args_list[0].args[1])
+        self.assertIn("correo", send_mock.call_args_list[1].args[1])
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
+    def test_blocked_contact_cannot_use_even_public_bot_features(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        contact = self.env["rioclaro.telegram.contact"].get_contact(777)
+        contact.active = False
+        updates_mock.return_value = (
+            214,
+            [_text_message(message_id=72, text="¿Qué puedes hacer?")],
+        )
+
+        self.intake.cron_poll_telegram()
+
+        answer_mock.assert_not_called()
+        send_mock.assert_called_once()
+        self.assertIn("bloqueado", send_mock.call_args.args[1])
+        self.assertFalse(contact.active)
+        self.assertEqual(
+            self.env["rioclaro.telegram.contact"].with_context(active_test=False).search_count(
+                [("telegram_user_id", "=", "777")]
+            ),
+            1,
+        )
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
@@ -353,13 +486,16 @@ class TestTelegramIntake(TransactionCase):
         self.intake.cron_poll_telegram()
 
         download_mock.assert_not_called()
-        self.assertIn("por texto", send_mock.call_args.args[1])
+        self.assertIn("nombre", send_mock.call_args.args[1])
+        contact = self.env["rioclaro.telegram.contact"].get_contact(999)
+        self.assertEqual(contact.onboarding_state, "awaiting_name")
         audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
             [("source_message_id", "=", "telegram:555:60")]
         )
-        self.assertEqual(audit.outcome, "denied")
+        self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.tool, "onboarding")
         self.assertEqual(audit.input_type, "voice")
-        self.assertFalse(audit.contact_id)
+        self.assertEqual(audit.contact_id, contact)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
@@ -375,7 +511,8 @@ class TestTelegramIntake(TransactionCase):
             {
                 "name": "Public Telegram contact",
                 "telegram_user_id": "778",
-                "role": "internal",
+                "role": "public",
+                "onboarding_state": "complete",
                 **permission_flags,
             }
         )
@@ -419,7 +556,8 @@ class TestTelegramIntake(TransactionCase):
             {
                 "name": "Public Telegram contact",
                 "telegram_user_id": "778",
-                "role": "internal",
+                "role": "public",
+                "onboarding_state": "complete",
                 **{permission: False for permission in PERMISSION_FIELDS},
             }
         )
@@ -587,16 +725,25 @@ class TestTelegramIntake(TransactionCase):
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
-    @patch.object(AssistedQueryAI, "answer_public")
-    def test_public_query_rate_limit_applies_to_unknown_senders(
-        self, answer_public_mock, send_mock, updates_mock
+    @patch.object(AssistedQueryAI, "answer")
+    def test_public_query_rate_limit_applies_to_public_contacts(
+        self, answer_mock, send_mock, updates_mock
     ):
         audit_model = self.env["rioclaro.assisted.query.audit"]
+        contact = self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Public Telegram contact",
+                "telegram_user_id": "999",
+                "role": "public",
+                "onboarding_state": "complete",
+            }
+        )
         for index in range(5):
             audit_model.log_request(
                 telegram_user_id=999,
                 source_message_id=f"telegram:555:public-old-{index}",
                 outcome="allowed",
+                contact=contact,
                 tool="public_catalog",
             )
         updates_mock.return_value = (
@@ -612,7 +759,7 @@ class TestTelegramIntake(TransactionCase):
 
         self.intake.cron_poll_telegram()
 
-        answer_public_mock.assert_not_called()
+        answer_mock.assert_not_called()
         send_mock.assert_called_once_with(
             555, "Límite alcanzado: intenta de nuevo en unos minutos."
         )
@@ -620,7 +767,7 @@ class TestTelegramIntake(TransactionCase):
             [("source_message_id", "=", "telegram:555:59")]
         )
         self.assertEqual(audit.outcome, "rate_limited")
-        self.assertFalse(audit.contact_id)
+        self.assertEqual(audit.contact_id, contact)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")
@@ -723,26 +870,37 @@ class TestTelegramIntake(TransactionCase):
         download_mock,
         updates_mock,
     ):
-        updates_mock.return_value = (207, [_voice_message()])
+        contact = self.env["rioclaro.telegram.contact"].create(
+            {
+                "name": "Public Telegram contact",
+                "telegram_user_id": "999",
+                "role": "public",
+                "onboarding_state": "complete",
+            }
+        )
+        updates_mock.return_value = (207, [_voice_message(sender_id=999)])
         answer_mock.return_value = {
             "ok": True,
-            "tool": "stock_by_product",
-            "rows": [{"product": "Escritorio", "on_hand": 3}],
-            "answer": "Hay 3 escritorios disponibles.",
+            "tool": "public_catalog",
+            "rows": [],
+            "answer": "Hay productos publicados en el catálogo.",
         }
 
         self.intake.cron_poll_telegram()
 
         download_mock.assert_called_once_with("voice-1")
-        answer_mock.assert_called_once_with(777, "¿Qué hay en inventario?")
+        answer_mock.assert_called_once_with(999, "¿Qué hay en inventario?")
         send_voice_mock.assert_called_once_with(555, b"fake-mp3")
-        send_text_mock.assert_not_called()
+        send_text_mock.assert_called_once_with(
+            555, "Hay productos publicados en el catálogo."
+        )
         audit = self.env["rioclaro.assisted.query.audit"].sudo().search(
             [("source_message_id", "=", "telegram:555:60")]
         )
         self.assertEqual(audit.input_type, "voice")
-        self.assertEqual(audit.tool, "stock_by_product")
+        self.assertEqual(audit.tool, "public_catalog")
         self.assertEqual(audit.outcome, "allowed")
+        self.assertEqual(audit.contact_id, contact)
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.dict(

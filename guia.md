@@ -1538,6 +1538,13 @@ Test the endpoint (route `screen-email`, auth level FUNCTION):
    password, action **Supplier Invoice Email**. Press **Confirm**. A
    "last fetch" time appears once the scheduled fetch runs.
    ![Confirmed IMAP server](docs/screenshots/e1-10-odoo-vm-imap-server-confirmed.png)
+5. To poll more frequently, open Settings > Technical > Scheduled Actions >
+   **Mail: Fetchmail Service**. Set **Execute Every** to `1` **Minute** and
+   leave the action active. This schedule applies to all configured incoming
+   mail servers, not only the invoice mailbox. Odoo may run it later if its
+   scheduled jobs are busy; **Fetch Now** remains available for an immediate
+   check.
+   ![Fetchmail service scheduled every minute](docs/screenshots/e1-15-fetchmail-cron-one-minute.png)
 
 #### D. Live test
 

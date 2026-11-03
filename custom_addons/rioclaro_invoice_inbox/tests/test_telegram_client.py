@@ -140,6 +140,18 @@ class TestTelegramClient(TransactionCase):
         self.assertIn(b"chat_id=555", request.data)
 
     @patch(_URLOPEN)
+    def test_send_message_can_enable_html_parse_mode(self, urlopen_mock):
+        urlopen_mock.return_value = _json_response({"message_id": 1})
+
+        self.client.send_message(
+            555, '<a href="https://rioclaro.example/shop/salvo">Salvo</a>',
+            parse_mode="HTML",
+        )
+
+        request = urlopen_mock.call_args.args[0]
+        self.assertIn(b"parse_mode=HTML", request.data)
+
+    @patch(_URLOPEN)
     def test_send_voice_uploads_mp3_as_multipart(self, urlopen_mock):
         urlopen_mock.return_value = _json_response({"message_id": 1})
 

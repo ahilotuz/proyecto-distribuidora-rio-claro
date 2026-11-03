@@ -296,6 +296,53 @@ class TestTelegramIntake(TransactionCase):
     @patch.object(TelegramClient, "get_updates")
     @patch.object(TelegramClient, "send_message")
     @patch.object(AssistedQueryAI, "answer")
+    def test_public_product_recommendation_links_names_to_shop_pages(
+        self, answer_mock, send_mock, updates_mock
+    ):
+        parameters = self.env["ir.config_parameter"].sudo()
+        base_url_parameter = parameters.search(
+            [("key", "=", "web.base.url")], limit=1
+        )
+        if base_url_parameter:
+            base_url_parameter.write({"value": "https://rioclaro.example"})
+        else:
+            parameters.create(
+                {"key": "web.base.url", "value": "https://rioclaro.example"}
+            )
+        product_name = "Jabón Líquido Salvo Limón 1.2 L"
+        updates_mock.return_value = (
+            207,
+            [
+                _text_message(
+                    message_id=53,
+                    text="¿Qué producto me sirve para lavar trastes?",
+                )
+            ],
+        )
+        answer_mock.return_value = {
+            "ok": True,
+            "tool": "public_catalog",
+            "rows": [
+                {"name": product_name, "url": "/shop/salvo-limon"}
+            ],
+            "answer": f"• {product_name}: Ideal para lavar trastes.",
+        }
+
+        self.intake.cron_poll_telegram()
+
+        send_mock.assert_called_once_with(
+            555,
+            (
+                '• <a href="https://rioclaro.example/shop/salvo-limon">'
+                f"{product_name}</a>: Ideal para lavar trastes."
+            ),
+            parse_mode="HTML",
+        )
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(AssistedQueryAI, "answer")
     def test_query_rate_limit_is_five_per_contact_per_five_minutes(
         self, answer_mock, send_mock, updates_mock
     ):
@@ -445,6 +492,68 @@ class TestTelegramIntake(TransactionCase):
         self.assertEqual(audit.input_type, "voice")
         self.assertEqual(audit.tool, "stock_by_product")
         self.assertEqual(audit.outcome, "allowed")
+
+    @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
+    @patch.dict(
+        "os.environ",
+        {
+            "RIOCLARO_SPEECH_ENDPOINT": "https://canadacentral.api.cognitive.microsoft.com/",
+            "RIOCLARO_SPEECH_REGION": "canadacentral",
+            "RIOCLARO_SPEECH_KEY": "fake-speech-key",
+        },
+    )
+    @patch.object(TelegramClient, "get_updates")
+    @patch.object(TelegramClient, "download_file", return_value=b"ogg-audio")
+    @patch.object(TelegramClient, "send_voice")
+    @patch.object(TelegramClient, "send_message")
+    @patch.object(
+        AzureSpeechClient,
+        "transcribe",
+        return_value="¿Qué sirve para lavar trastes?",
+    )
+    @patch.object(AzureSpeechClient, "synthesize", return_value=b"fake-mp3")
+    @patch.object(AssistedQueryAI, "answer")
+    def test_voice_product_recommendation_sends_clickable_text_with_voice(
+        self,
+        answer_mock,
+        synthesize_mock,
+        _transcribe_mock,
+        send_text_mock,
+        send_voice_mock,
+        _download_mock,
+        updates_mock,
+    ):
+        params = self.env["ir.config_parameter"].sudo()
+        base_url_parameter = params.search(
+            [("key", "=", "web.base.url")], limit=1
+        )
+        if base_url_parameter:
+            base_url_parameter.write({"value": "https://rioclaro.example"})
+        else:
+            params.create({"key": "web.base.url", "value": "https://rioclaro.example"})
+        product_name = "Jabón Líquido Salvo Limón 1.2 L"
+        updates_mock.return_value = (209, [_voice_message(message_id=62)])
+        answer_mock.return_value = {
+            "ok": True,
+            "tool": "public_catalog",
+            "rows": [{"name": product_name, "url": "/shop/salvo-limon"}],
+            "answer": f"• {product_name}: Ideal para lavar trastes.",
+        }
+
+        self.intake.cron_poll_telegram()
+
+        synthesize_mock.assert_called_once_with(
+            f"• {product_name}: Ideal para lavar trastes.", language="es-MX"
+        )
+        send_voice_mock.assert_called_once_with(555, b"fake-mp3")
+        send_text_mock.assert_called_once_with(
+            555,
+            (
+                '• <a href="https://rioclaro.example/shop/salvo-limon">'
+                f"{product_name}</a>: Ideal para lavar trastes."
+            ),
+            parse_mode="HTML",
+        )
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.dict(

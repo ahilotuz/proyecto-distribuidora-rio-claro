@@ -131,6 +131,27 @@ class TestWebsiteLivechatAI(TransactionCase):
             posted_bodies,
         )
 
+    def test_public_ai_explains_capabilities_without_private_access(self):
+        channel, guest = self._visitor_channel()
+        visitor_message = self._post(
+            channel, "¿Qué puedes hacer?", guest=guest
+        )
+
+        with patch.object(AssistedQueryAI, "answer_public") as answer_public:
+            channel._message_post_after_hook(visitor_message)
+
+        answer_public.assert_not_called()
+        replies = [
+            html2plaintext(body)
+            for body in channel.message_ids.mapped("body")
+            if "Puedo ayudarte a encontrar productos" in html2plaintext(body)
+        ]
+        self.assertEqual(len(replies), 1)
+        self.assertIn("catálogo publicado", replies[0])
+        self.assertIn("información pública del sitio web", replies[0])
+        self.assertIn("No puedo consultar precios, existencias", replies[0])
+        self.assertNotIn("consultas privadas habilitadas", replies[0])
+
     def test_public_ai_rate_limits_guest_without_calling_model(self):
         channel, guest = self._visitor_channel()
         for index in range(5):

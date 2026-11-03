@@ -8,6 +8,7 @@ from typing import Literal
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
+from .chat_help import is_capability_help_request
 from .document_intelligence import (
     AzureDocumentIntelligenceClient,
     DocumentIntelligenceError,
@@ -28,6 +29,14 @@ _TELEGRAM_RATE_WINDOW_PARAM = "rioclaro_invoice_inbox.telegram_query_window_minu
 _TELEGRAM_QUERY_RATE_LIMIT = 5
 _TELEGRAM_QUERY_WINDOW_MINUTES = 5
 _TELEGRAM_MAX_REPLY_LENGTH = 4000
+_TELEGRAM_PRIVATE_CAPABILITY_LABELS = (
+    ("can_query_inventory", "Consultar existencias y disponibilidad de productos"),
+    ("can_query_purchases", "Consultar compras"),
+    ("can_query_sales", "Consultar ventas"),
+    ("can_query_billing", "Consultar facturas y saldos"),
+    ("can_query_margins", "Consultar márgenes y costos"),
+    ("can_check_order_status", "Consultar el estado de pedidos"),
+)
 
 
 class SupplierInvoiceIntake(models.Model):
@@ -250,6 +259,41 @@ class SupplierInvoiceIntake(models.Model):
         return self.env["rioclaro.telegram.contact"].is_allowed(
             sender_id, "can_submit_vendor_invoice"
         )
+
+    @api.model
+    def _telegram_help_response(self, contact: models.Model) -> str:
+        """Describe public features and only private features enabled for contact."""
+        response_lines = [
+            "Puedo recomendar productos del catálogo público y responder preguntas "
+            "sobre información publicada en el sitio web.",
+            "",
+            "Para tu cuenta están habilitadas estas funciones:",
+        ]
+        capabilities = [
+            label
+            for permission, label in _TELEGRAM_PRIVATE_CAPABILITY_LABELS
+            if contact[permission]
+        ]
+        if contact.can_submit_vendor_invoice:
+            capabilities.append("Enviar facturas de proveedor para revisión")
+        response_lines.extend(
+            f"• {capability}" for capability in capabilities
+        )
+        if not capabilities:
+            response_lines.append(
+                "• No tienes habilitadas consultas de datos privados ni el envío "
+                "de facturas."
+            )
+        response_lines.extend(
+            [
+                "",
+                "Las consultas privadas se limitan a los permisos y registros "
+                "asignados a tu cuenta.",
+                "Puedes escribir /ayuda en cualquier momento. También puedes "
+                "enviar preguntas por texto o nota de voz.",
+            ]
+        )
+        return "\n".join(response_lines)
 
     @api.model
     def create_from_telegram(
@@ -528,9 +572,17 @@ class SupplierInvoiceIntake(models.Model):
                 )
                 return
 
-        result = self.env["rioclaro.assisted.query.ai"].answer(
-            message.sender_id, question
-        )
+        if is_capability_help_request(question):
+            result = {
+                "ok": True,
+                "tool": "help",
+                "rows": [],
+                "answer": self._telegram_help_response(contact),
+            }
+        else:
+            result = self.env["rioclaro.assisted.query.ai"].answer(
+                message.sender_id, question
+            )
         outcome = {
             "denied": "denied",
             "invalid_question": "invalid",

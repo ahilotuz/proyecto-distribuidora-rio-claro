@@ -30,7 +30,8 @@ class AssistedQueryAudit(models.Model):
         [
             (name, name.replace("_", " ").title())
             for name in (*TOOL_REGISTRY, *sorted(PUBLIC_TOOL_NAMES))
-        ],
+        ]
+        + [("help", "Help")],
         index=True,
     )
     outcome = fields.Selection(
@@ -73,7 +74,9 @@ class AssistedQueryAudit(models.Model):
                 "input_type": input_type if input_type in {"text", "voice"} else "text",
                 "tool": (
                     tool
-                    if tool in TOOL_REGISTRY or tool in PUBLIC_TOOL_NAMES
+                    if tool in TOOL_REGISTRY
+                    or tool in PUBLIC_TOOL_NAMES
+                    or tool == "help"
                     else False
                 ),
             }

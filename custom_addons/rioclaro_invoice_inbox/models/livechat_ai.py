@@ -12,10 +12,10 @@ _logger = logging.getLogger(__name__)
 _LIVECHAT_AI_QUERY_LIMIT = 5
 _LIVECHAT_AI_WINDOW_MINUTES = 5
 _PUBLIC_LIVECHAT_HELP_RESPONSE = (
-    "Puedo ayudarte a encontrar productos con base en el catálogo publicado y "
-    "responder preguntas sobre información pública del sitio web. No puedo "
-    "consultar precios, existencias ni datos de pedidos o clientes. Para esos "
-    "temas, deja tu mensaje y un agente podrá ayudarte."
+    "Puedo ayudarte a encontrar productos del catálogo publicado, consultar sus "
+    "precios públicos y responder preguntas sobre información publicada en el "
+    "sitio web. No puedo consultar existencias ni datos privados de pedidos o "
+    "clientes. Para esos temas, deja tu mensaje y un agente podrá ayudarte."
 )
 
 
@@ -27,9 +27,9 @@ class LivechatChannel(models.Model):
     rioclaro_ai_enabled = fields.Boolean(
         string="Río Claro AI assistant",
         help=(
-            "Answer visitor questions using published website products and pages "
-            "only. This assistant cannot access prices, stock, orders, invoices, "
-            "or customer records."
+            "Answer visitor questions using published website products and pages, "
+            "including public shop prices. This assistant cannot access stock, "
+            "orders, invoices, costs, margins, or customer records."
         ),
     )
 

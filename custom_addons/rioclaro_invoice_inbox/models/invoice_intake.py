@@ -264,8 +264,9 @@ class SupplierInvoiceIntake(models.Model):
     def _telegram_help_response(self, contact: models.Model) -> str:
         """Describe public features and only private features enabled for contact."""
         response_lines = [
-            "Puedo recomendar productos del catálogo público y responder preguntas "
-            "sobre información publicada en el sitio web.",
+            "Puedo recomendar productos del catálogo publicado, consultar sus "
+            "precios públicos y responder preguntas sobre información publicada "
+            "en el sitio web.",
             "",
             "Para tu cuenta están habilitadas estas funciones:",
         ]

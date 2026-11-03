@@ -334,10 +334,51 @@ class TestPublicWebsiteQueries(TransactionCase):
             result["rows"][0]["description"], "Desinfectante para superficies."
         )
         self.assertEqual(
-            set(result["rows"][0]), {"name", "description", "url"}
+            set(result["rows"][0]),
+            {
+                "name",
+                "description",
+                "url",
+                "website_price",
+                "currency",
+                "currency_decimal_places",
+                "price_tax_included",
+            },
         )
         self.assertEqual(result["rows"][0]["url"], public_product.website_url)
         self.assertIn("/shop/", result["rows"][0]["url"])
+        self.assertIsInstance(result["rows"][0]["website_price"], (int, float))
+        self.assertIsInstance(result["rows"][0]["currency"], str)
+        self.assertIsInstance(result["rows"][0]["currency_decimal_places"], int)
+        self.assertIsInstance(result["rows"][0]["price_tax_included"], bool)
+        self.assertNotIn("standard_price", result["rows"][0])
+        self.assertNotIn("qty_available", result["rows"][0])
+
+    def test_public_catalog_orders_cheapest_matching_products_first(self):
+        cheaper = self.env["product.template"].create(
+            {
+                "name": "Jabón económico para ropa",
+                "is_published": True,
+                "description_ecommerce": "<p>Para lavar ropa.</p>",
+                "list_price": 40.6,
+            }
+        )
+        self.env["product.template"].create(
+            {
+                "name": "Detergente premium para ropa",
+                "is_published": True,
+                "description_ecommerce": "<p>Para lavar ropa.</p>",
+                "list_price": 85.0,
+            }
+        )
+
+        result = self.env["rioclaro.query.service"].run_public_tool(
+            "public_catalog",
+            "¿Cuál es el producto para lavar ropa más económico que tienen?",
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["rows"][0]["name"], cheaper.name)
 
     def test_public_catalog_uses_description_shown_under_product_title(self):
         self.env["product.template"].create(

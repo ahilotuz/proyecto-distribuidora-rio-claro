@@ -161,6 +161,68 @@ class TestOrchestrator(TransactionCase):
         private_tool.assert_not_called()
         summarize.assert_called_once()
 
+    @patch.object(AzureOpenAIClient, "summarize_rows")
+    @patch.object(AzureOpenAIClient, "choose_public_tool")
+    @patch.object(QueryService, "run_public_tool")
+    def test_public_cheapest_answer_uses_lowest_public_website_price(
+        self, public_tool, choose_tool, summarize
+    ):
+        choose_tool.return_value = _choice("public_catalog", "ropa")
+        public_tool.return_value = {
+            "ok": True,
+            "rows": [
+                {
+                    "name": "Detergente premium para ropa",
+                    "website_price": 85.0,
+                    "currency": "MXN",
+                    "currency_decimal_places": 2,
+                    "price_tax_included": True,
+                },
+                {
+                    "name": "Jabón económico para ropa",
+                    "website_price": 40.6,
+                    "currency": "MXN",
+                    "currency_decimal_places": 2,
+                    "price_tax_included": True,
+                },
+            ],
+        }
+
+        result = self.ai.answer_public(
+            "¿Cuál es el producto para lavar ropa más económico que tienen?"
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertIn("Jabón económico para ropa: 40.60 MXN", result["answer"])
+        self.assertIn("impuestos incluidos", result["answer"])
+        self.assertNotIn("85.00", result["answer"])
+        summarize.assert_not_called()
+
+    @patch.object(AzureOpenAIClient, "summarize_rows")
+    @patch.object(AzureOpenAIClient, "choose_public_tool")
+    @patch.object(QueryService, "run_public_tool")
+    def test_public_cheapest_answer_does_not_invent_missing_prices(
+        self, public_tool, choose_tool, summarize
+    ):
+        choose_tool.return_value = _choice("public_catalog", "ropa")
+        public_tool.return_value = {
+            "ok": True,
+            "rows": [
+                {
+                    "name": "Jabón para ropa",
+                    "website_price": None,
+                    "currency": None,
+                    "currency_decimal_places": None,
+                    "price_tax_included": None,
+                },
+            ],
+        }
+
+        result = self.ai.answer_public("¿Cuál es el más económico para ropa?")
+
+        self.assertIn("no hay un precio público disponible", result["answer"])
+        summarize.assert_not_called()
+
     @patch.object(AzureOpenAIClient, "summarize_rows", return_value="• Salvo Limón")
     @patch.object(AzureOpenAIClient, "choose_tool")
     @patch.object(QueryService, "run_public_tool")

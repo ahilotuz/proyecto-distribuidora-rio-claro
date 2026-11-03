@@ -3,6 +3,7 @@ import logging
 import os
 from datetime import timedelta
 from hashlib import sha256
+from typing import Literal
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -11,6 +12,7 @@ from .document_intelligence import (
     AzureDocumentIntelligenceClient,
     DocumentIntelligenceError,
 )
+from .public_product_links import link_public_products
 from .speech_client import AzureSpeechClient, SpeechError
 from .telegram_client import TelegramClient, TelegramError, TelegramMessage
 
@@ -547,10 +549,53 @@ class SupplierInvoiceIntake(models.Model):
         )
         if result.get("ok"):
             reply = str(result.get("answer", ""))[:_TELEGRAM_MAX_REPLY_LENGTH]
+            speech_reply = reply
+            parse_mode = None
+            if result.get("tool") == "public_catalog":
+                rows = result.get("rows", [])
+                if rows:
+                    try:
+                        linked_reply = link_public_products(
+                            reply,
+                            rows,
+                            base_url=params.search(
+                                [("key", "=", "web.base.url")], limit=1
+                            ).value
+                            or "",
+                            line_break="\n",
+                            target_blank=False,
+                        )
+                    except ValueError:
+                        _logger.warning(
+                            "Product links for Telegram query %s could not be "
+                            "built because web.base.url is invalid.",
+                            message.message_id,
+                        )
+                    else:
+                        if '<a href="' in linked_reply:
+                            if len(linked_reply) <= _TELEGRAM_MAX_REPLY_LENGTH:
+                                reply = str(linked_reply)
+                                parse_mode = "HTML"
+                            else:
+                                _logger.warning(
+                                    "Product links for Telegram query %s exceeded "
+                                    "the reply length limit.",
+                                    message.message_id,
+                                )
             if voice_audio is not None:
                 try:
-                    spoken_reply = speech_client.synthesize(reply, language="es-MX")
+                    spoken_reply = speech_client.synthesize(
+                        speech_reply, language="es-MX"
+                    )
                     client.send_voice(message.chat_id, spoken_reply)
+                    if parse_mode:
+                        self._send_telegram_query_reply(
+                            client,
+                            message.chat_id,
+                            reply,
+                            message.message_id,
+                            parse_mode=parse_mode,
+                        )
                     return
                 except (ValueError, SpeechError, TelegramError):
                     _logger.warning(
@@ -567,16 +612,29 @@ class SupplierInvoiceIntake(models.Model):
         else:
             reply = "El asistente no está disponible en este momento."
         self._send_telegram_query_reply(
-            client, message.chat_id, reply, message.message_id
+            client,
+            message.chat_id,
+            reply,
+            message.message_id,
+            parse_mode=parse_mode if result.get("ok") else None,
         )
 
     @api.model
     def _send_telegram_query_reply(
-        self, client: TelegramClient, chat_id: int, reply: str, message_id: int
+        self,
+        client: TelegramClient,
+        chat_id: int,
+        reply: str,
+        message_id: int,
+        *,
+        parse_mode: Literal["HTML"] | None = None,
     ) -> None:
         """Send a query response and log delivery failures without rerunning AI."""
         try:
-            client.send_message(chat_id, reply)
+            if parse_mode:
+                client.send_message(chat_id, reply, parse_mode=parse_mode)
+            else:
+                client.send_message(chat_id, reply)
         except TelegramError:
             _logger.warning(
                 "Telegram response for text query %s could not be delivered.",

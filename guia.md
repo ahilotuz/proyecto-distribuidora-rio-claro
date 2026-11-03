@@ -1748,7 +1748,9 @@ as product descriptions mentioning dishwashing.
   that permission again and retains its existing partner and company scopes.
 - Public recommendations include only published names and website
   descriptions; they do not include prices, stock, sales, invoices, or
-  customer data. Unpublished products remain excluded.
+  customer data. Unpublished products remain excluded. In Telegram, exact
+  product names link to their published shop pages using Odoo's configured
+  `web.base.url`; only `/shop/...` paths are linked.
 - Existing Telegram query auditing and per-contact rate limits also apply to
   public questions.
 
@@ -1757,8 +1759,9 @@ as product descriptions mentioning dishwashing.
 1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance.
 2. In Telegram, ask `¿Qué producto me sirve para lavar trastes?` from an active
    contact. Confirm the reply recommends a product whose published
-   description matches the use, such as Salvo, without disclosing stock or
-   prices.
+   description matches the use, such as Salvo. Confirm its product name is a
+   clickable link to the shop page and that the reply does not disclose stock
+   or prices.
 3. Use a second active contact with all private query permissions disabled.
    Confirm it can ask the same public question but cannot retrieve private
    sales, inventory, invoice, or order data.

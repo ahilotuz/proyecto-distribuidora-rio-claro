@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -133,9 +133,14 @@ class TelegramClient:
             raise TelegramError("Telegram file is empty or too large.")
         return content
 
-    def send_message(self, chat_id: int, text: str) -> None:
-        """Send a plain text reply to a chat."""
-        self._call("sendMessage", {"chat_id": chat_id, "text": text})
+    def send_message(
+        self, chat_id: int, text: str, *, parse_mode: Literal["HTML"] | None = None
+    ) -> None:
+        """Send a text reply, optionally parsing safe HTML formatting."""
+        params: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            params["parse_mode"] = parse_mode
+        self._call("sendMessage", params)
 
     def send_voice(self, chat_id: int, audio: bytes, filename: str = "reply.mp3") -> None:
         """Upload an MP3 voice reply to a Telegram private chat."""

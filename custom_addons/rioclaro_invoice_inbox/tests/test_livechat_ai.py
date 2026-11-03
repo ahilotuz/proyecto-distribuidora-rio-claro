@@ -25,6 +25,50 @@ class TestWebsiteLivechatAI(TransactionCase):
         self.assertIn("&lt;script&gt;", reply)
         self.assertNotIn("href=", reply)
 
+    def test_link_formatter_keeps_livechat_shop_links_relative(self):
+        reply = _link_public_products(
+            "• Salvo Limón",
+            [{"name": "Salvo Limón", "url": "/shop/salvo-limon"}],
+        )
+
+        self.assertIn(
+            '<a href="/shop/salvo-limon" target="_blank" '
+            'rel="noopener noreferrer">Salvo Limón</a>',
+            reply,
+        )
+
+    def test_product_link_formatter_builds_safe_absolute_telegram_links(self):
+        reply = _link_public_products(
+            "• Salvo & Trastes",
+            [
+                {
+                    "name": "Salvo & Trastes",
+                    "url": "https://untrusted.example/shop/salvo",
+                }
+            ],
+            base_url="https://rioclaro.example/",
+            line_break="\n",
+            target_blank=False,
+        )
+
+        self.assertIn(
+            '<a href="https://rioclaro.example/shop/salvo">Salvo &amp; Trastes</a>',
+            reply,
+        )
+        self.assertNotIn("untrusted.example", reply)
+        self.assertNotIn("<br/>", reply)
+        self.assertNotIn("target=", reply)
+
+    def test_product_link_formatter_rejects_invalid_base_url(self):
+        with self.assertRaises(ValueError):
+            _link_public_products(
+                "• Salvo",
+                [{"name": "Salvo", "url": "/shop/salvo"}],
+                base_url="javascript:alert(1)",
+                line_break="\n",
+                target_blank=False,
+            )
+
     def _visitor_channel(self, enabled=True):
         livechat_type = self.env["im_livechat.channel"].create(
             {"name": "Río Claro AI test", "rioclaro_ai_enabled": enabled}

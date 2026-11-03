@@ -9,8 +9,8 @@
                 <app string="Río Claro Chatbot" name="rioclaro_invoice_inbox"
                      groups="base.group_system">
                     <block title="Telegram query limit">
-                        <setting string="Queries per contact"
-                                 help="Maximum queries a contact may send within the window.">
+                         <setting string="Queries per Telegram user"
+                                  help="Maximum queries a Telegram user may send within the window.">
                             <field name="rioclaro_telegram_query_rate_limit"/>
                         </setting>
                         <setting string="Window (minutes)"

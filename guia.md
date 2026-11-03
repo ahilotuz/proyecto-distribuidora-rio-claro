@@ -1086,8 +1086,9 @@ WhatsApp remains deferred.
 - Added model `rioclaro.telegram.contact` (numeric Telegram ID, role
   supplier/internal/customer, partner, company, active flag, 8 permission
   flags). Roles preload default permissions that can be adjusted per contact.
-  Deny by default: unknown, inactive, or non-permitted senders are refused,
-  and unknown permission names are refused.
+  Private access is denied by default: unknown, inactive, or non-permitted
+  senders are refused private operations, and unknown permission names are
+  refused.
 - Validation: numeric Telegram IDs only (no usernames), unique ID, suppliers
   and customers require a partner. Access rights: system administrators only,
   with an admin-only menu **Invoice Intake → Telegram Contacts**.
@@ -1190,15 +1191,15 @@ the Speech settings in `.env`.
 
 - Telegram parser now accepts plain text only from private chats; group-chat
   messages are ignored. Existing invoice-file intake remains supported.
-- Polling routes private text through `rioclaro.assisted.query.ai.answer`.
-  Unknown and inactive contacts are denied before calling Azure OpenAI. Active
-  contacts without private-query permissions can use only published website
-  content (added in Milestone 21 below).
+- Polling routes authorized contacts through
+`rioclaro.assisted.query.ai.answer`. Unknown and inactive senders use only
+the public-only `answer_public` path for text questions; private operations
+remain denied.
 - Added admin-only `rioclaro.assisted.query.audit` model and menu
   **Invoice Intake → Assisted Query Audit**. It stores sender ID, contact,
   company, selected tool, outcome, Telegram message ID, and timestamp; it
   does not store the question, answer, or invoice text.
-- Rate limit: 5 requests per contact per rolling 5-minute window. Audited
+- Rate limit: 5 requests per Telegram user per rolling 5-minute window. Audited
   duplicate Telegram message IDs are not processed twice.
 - Replies explicitly cover denied access, invalid questions, rate limit, and
   unavailable AI. Query replies are capped at Telegram's safe message length.
@@ -1226,7 +1227,7 @@ below.
   transcribes them, sends the transcription through the existing ACL-scoped
   query tools, and sends the answer as MP3 voice. If synthesis or audio
   delivery fails, it falls back to text.
-- Voice queries share the per-contact 5 requests / 5 minutes limit and are
+- Authorized voice queries share the per-user 5 requests / 5 minutes limit and are
   marked as voice in the admin audit view. Neither audio nor transcript is
   stored in the audit record.
 - Speech settings are passed into the Odoo container through Compose.
@@ -1419,7 +1420,8 @@ merged by the assistant). Never print or commit secrets.
    'last_error_message': None}`.
 5. Create the Owner contact (`rioclaro.telegram.contact`: Telegram ID, role
    `internal`, company, query permissions) from an `odoo shell` script or the
-   Odoo UI. Without it the bot answers "No autorizado para consultas."
+   Odoo UI. Without it, private business queries and voice questions are
+   denied; public text questions remain available without a contact.
 6. Test from Telegram: a stock question returned the correct reply from the
    VM database. Forged and missing secret both return 403; GET returns 405;
    Telegram shows 0 pending updates and no errors.
@@ -1433,7 +1435,7 @@ merged by the assistant). Never print or commit secrets.
 ### Behaviours worth knowing
 
 - Rate limit: configurable in **Settings > Río Claro Chatbot**. Defaults to 5
-  queries per contact per 5 minutes. Values below 1 are treated as 1.
+  queries per Telegram user per 5 minutes. Values below 1 are treated as 1.
   Rate-limited attempts are audited and count toward the window.
 - Telegram answers are plain text. Markdown emphasis and code ticks are
   removed, and list markers are normalised to `•`.
@@ -1600,8 +1602,8 @@ Lessons learned:
 - `deploy/README.md` and `scripts/telegram_webhook.py` now show the required
   `--db_host/--db_user/--db_password/--addons-path/--http-port=0` flags for
   `odoo shell` and `odoo -u` (without them they fail with a Postgres socket error).
-- The per-contact query limit is editable in **Settings > Río Claro Chatbot**
-  (administrators only): *Queries per contact* (default 5) and *Window (minutes)*
+- The per-user query limit is editable in **Settings > Río Claro Chatbot**
+  (administrators only): *Queries per Telegram user* (default 5) and *Window (minutes)*
   (default 5). They are stored as the system parameters
   `rioclaro_invoice_inbox.telegram_query_rate_limit` and
   `rioclaro_invoice_inbox.telegram_query_window_minutes`; values below 1 are
@@ -1756,17 +1758,19 @@ and per-visitor rate limiting.
 
 ## 21. Telegram public product recommendations
 
-Telegram text and voice questions can now use the same published product
-catalog and FAQ content as Website Live Chat. For example, an active Telegram
-contact can ask `¿Qué producto me sirve para lavar trastes?`; the catalog
-search matches published product names and public website descriptions, such
-as product descriptions mentioning dishwashing.
+Telegram public text questions use the same published product catalog and FAQ
+content as Website Live Chat. Any Telegram account can ask these questions in
+a private chat without an Odoo contact. Authorized active contacts can also
+ask by voice.
 
-- Any **active Telegram contact** may ask questions answered from published
-  product or website content. The bot still denies unknown and inactive IDs.
+- Any Telegram account may ask for published product information, public
+  prices, and published website content by text. Unknown or inactive IDs are
+  sent only through the public query path, which cannot call private tools.
 - Private business tools are offered only when the contact has the matching
   permission enabled on its Odoo Telegram contact. The query service checks
   that permission again and retains its existing partner and company scopes.
+- Unknown or inactive users cannot submit invoice attachments. Group chats
+  remain ignored, and public queries are text-only.
 - Public recommendations include only published names, website descriptions,
   and the price displayed to an anonymous visitor under the default public
   website pricelist, currency, fiscal position, and tax display. Cheapest-price
@@ -1774,24 +1778,22 @@ as product descriptions mentioning dishwashing.
   stock, costs, margins, sales, invoices, and customer data remain excluded.
   In Telegram, exact product names link to their published shop pages using
   Odoo's configured `web.base.url`; only `/shop/...` paths are linked.
-- Existing Telegram query auditing and per-contact rate limits also apply to
-  public questions.
+- Existing Telegram query auditing and per-user rate limits also apply to
+  public questions, including users without an Odoo contact.
 
-Active Telegram contacts can use `/start`, `/help`, `/ayuda`, or ask
-`¿Qué puedes hacer?` to see a capability summary. It always includes public
-product and website-content questions, then lists only private queries and
-invoice submission enabled for that contact in Odoo. Unknown or inactive
-contacts remain denied, and the help response does not use Azure OpenAI.
+Anyone can use `/start`, `/help`, `/ayuda`, or ask `¿Qué puedes hacer?` in a
+private chat to see public capabilities. Active contacts also see only the
+private queries and invoice submission enabled for their account. Help does
+not use Azure OpenAI.
 
 ### Verify after deployment
 
 1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance.
-2. In Telegram, ask `¿Qué producto me sirve para lavar trastes?` from an active
-   contact. Confirm the reply recommends a product whose published
-   description matches the use, such as Salvo. Confirm its product name is a
-   clickable link to the shop page. Ask for the cheapest laundry product and
-   verify the public sale price, currency, and tax note match its shop page.
-   Confirm the bot does not disclose stock, costs, or margins.
+2. From an unregistered Telegram account in a private chat, ask
+   `¿Qué producto me sirve para lavar trastes?` and `¿Qué puedes hacer?`.
+   Confirm it recommends from published content and gives the public
+   capability summary. Confirm it does not disclose stock, costs, margins,
+   sales, invoices, or customer data.
 3. Use a second active contact with all private query permissions disabled.
    Confirm it can ask the same public question but cannot retrieve private
    sales, inventory, invoice, or order data.
@@ -1799,4 +1801,6 @@ contacts remain denied, and the help response does not use Azure OpenAI.
    catalog question and a question covered by that permission. Confirm both
    work; then revoke the private permission and confirm that private query is
    denied while public recommendations still work.
-5. Confirm an unknown or inactive Telegram ID remains denied.
+5. From an unregistered account, send an invoice attachment and a voice
+   message. Confirm neither is processed and public text questions remain
+   available.

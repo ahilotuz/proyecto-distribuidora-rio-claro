@@ -261,15 +261,27 @@ class SupplierInvoiceIntake(models.Model):
         )
 
     @api.model
-    def _telegram_help_response(self, contact: models.Model) -> str:
+    def _telegram_help_response(self, contact: models.Model | None = None) -> str:
         """Describe public features and only private features enabled for contact."""
         response_lines = [
             "Puedo recomendar productos del catálogo publicado, consultar sus "
             "precios públicos y responder preguntas sobre información publicada "
-            "en el sitio web.",
-            "",
-            "Para tu cuenta están habilitadas estas funciones:",
+            "en el sitio web."
         ]
+        if not contact:
+            response_lines.extend(
+                [
+                    "",
+                    "Puedes consultar esta información pública sin registrar "
+                    "una cuenta.",
+                    "Las consultas de datos privados y el envío de facturas requieren "
+                    "una cuenta autorizada.",
+                    "Escribe /ayuda en cualquier momento.",
+                ]
+            )
+            return "\n".join(response_lines)
+
+        response_lines.extend(["", "Para tu cuenta están habilitadas estas funciones:"])
         capabilities = [
             label
             for permission, label in _TELEGRAM_PRIVATE_CAPABILITY_LABELS
@@ -426,6 +438,11 @@ class SupplierInvoiceIntake(models.Model):
             self._process_telegram_text_query(client, message)
             return 0
         if message.voice:
+            if not self.env["rioclaro.telegram.contact"].get_active_contact(
+                message.sender_id
+            ):
+                self._process_telegram_text_query(client, message)
+                return 0
             if (
                 message.voice.duration_seconds is not None
                 and message.voice.duration_seconds > 60
@@ -469,11 +486,7 @@ class SupplierInvoiceIntake(models.Model):
         voice_duration_seconds: int | None = None,
     ) -> None:
         """Authorize, rate-limit, audit, and answer one text or voice query."""
-        input_type = (
-            "voice"
-            if voice_audio is not None or voice_duration_seconds is not None
-            else "text"
-        )
+        input_type = "voice" if message.voice else "text"
         audit_model = self.env["rioclaro.assisted.query.audit"].sudo()
         source_id = f"telegram:{message.chat_id}:{message.message_id}"
         if audit_model.search_count([("source_message_id", "=", source_id)]):
@@ -481,22 +494,6 @@ class SupplierInvoiceIntake(models.Model):
 
         contacts = self.env["rioclaro.telegram.contact"]
         contact = contacts.get_active_contact(message.sender_id)
-        if not contact:
-            audit_model.log_request(
-                telegram_user_id=message.sender_id,
-                source_message_id=source_id,
-                outcome="denied",
-                contact=contact,
-                input_type=input_type,
-            )
-            self._send_telegram_query_reply(
-                client,
-                message.chat_id,
-                "No autorizado para consultas.",
-                message.message_id,
-            )
-            return
-
         params = self.env["ir.config_parameter"].sudo()
         rate_limit = max(
             params.get_int(_TELEGRAM_RATE_LIMIT_PARAM, default=_TELEGRAM_QUERY_RATE_LIMIT),
@@ -509,7 +506,7 @@ class SupplierInvoiceIntake(models.Model):
         window_start = fields.Datetime.now() - timedelta(minutes=window_minutes)
         recent_count = audit_model.search_count(
             [
-                ("contact_id", "=", contact.id),
+                ("telegram_user_id", "=", str(message.sender_id)),
                 ("request_at", ">=", window_start),
             ]
         )
@@ -525,6 +522,22 @@ class SupplierInvoiceIntake(models.Model):
                 client,
                 message.chat_id,
                 "Límite alcanzado: intenta de nuevo en unos minutos.",
+                message.message_id,
+            )
+            return
+
+        if not contact and input_type == "voice":
+            audit_model.log_request(
+                telegram_user_id=message.sender_id,
+                source_message_id=source_id,
+                outcome="denied",
+                input_type=input_type,
+            )
+            self._send_telegram_query_reply(
+                client,
+                message.chat_id,
+                "Para consultar información pública, escribe tu pregunta por texto. "
+                "Las notas de voz requieren una cuenta autorizada.",
                 message.message_id,
             )
             return
@@ -580,10 +593,12 @@ class SupplierInvoiceIntake(models.Model):
                 "rows": [],
                 "answer": self._telegram_help_response(contact),
             }
-        else:
+        elif contact:
             result = self.env["rioclaro.assisted.query.ai"].answer(
                 message.sender_id, question
             )
+        else:
+            result = self.env["rioclaro.assisted.query.ai"].answer_public(question)
         outcome = {
             "denied": "denied",
             "invalid_question": "invalid",

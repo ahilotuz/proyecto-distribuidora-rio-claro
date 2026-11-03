@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 from odoo import api, models
 
+from .company_scope import resolve_company_selection
 from .query_service import (
     PUBLIC_TOOL_NAMES,
     TOOL_REGISTRY,
@@ -389,7 +390,7 @@ class AssistedQueryAI(models.AbstractModel):
         allowed_tools = {
             tool
             for tool, (permission, _) in TOOL_REGISTRY.items()
-            if contact[permission]
+            if contact.role != "public" and contact[permission]
         }
 
         endpoint = os.environ.get("RIOCLARO_AOAI_ENDPOINT", "")
@@ -413,29 +414,65 @@ class AssistedQueryAI(models.AbstractModel):
         if tool in PUBLIC_TOOL_NAMES:
             result = service.run_public_tool(tool, choice.text)
         else:
-            result = service.run_tool(telegram_user_id, tool, choice.text)
+            company_scope = self.env["res.company"].sudo().search([])
+            scope_status, company_ids = resolve_company_selection(
+                clean_question,
+                [(company.id, company.name) for company in company_scope],
+                contact.allowed_company_ids.ids,
+            )
+            allowed_companies = contact.allowed_company_ids.sorted("name").mapped(
+                "name"
+            )
+            if scope_status != "ok":
+                return {
+                    "ok": False,
+                    "error": (
+                        "company_required"
+                        if scope_status == "required"
+                        else "company_forbidden"
+                    ),
+                    "allowed_companies": allowed_companies,
+                    "tool": tool,
+                }
+            result = service.run_tool(
+                telegram_user_id, tool, choice.text, company_ids=list(company_ids)
+            )
         if not result.get("ok"):
             return {"ok": False, "error": result.get("error", "query_failed"), "tool": tool}
 
         # Server-side chaining, never model-driven: at most MAX_TOOL_CALLS calls.
         rows = result["rows"]
+        selected_company_ids = result.get("company_ids", [])
         if tool == "search_products" and len(rows) == 1:
             follow_up = service.run_tool(
-                telegram_user_id, "get_product_stock", str(rows[0]["product_id"])
+                telegram_user_id,
+                "get_product_stock",
+                str(rows[0]["product_id"]),
+                company_ids=selected_company_ids,
             )
             if follow_up.get("ok") and follow_up["rows"]:
                 tool, rows = "get_product_stock", follow_up["rows"]
 
         # Facts come only from tool rows: no rows or ambiguity never reach the model.
         if not rows:
-            return {"ok": True, "tool": tool, "rows": rows, "answer": NO_RESULTS_MESSAGE}
+            return {
+                "ok": True,
+                "tool": tool,
+                "rows": rows,
+                "answer": NO_RESULTS_MESSAGE,
+                "company_ids": selected_company_ids,
+            }
         price_answer = self._lowest_public_price_answer(question, tool, rows)
         if price_answer:
+            price_answer["company_ids"] = selected_company_ids
             return price_answer
         if tool == "stock_by_product" and len(rows) > 1:
             lines = "\n".join(
-                f"• {row['product']}: {row['on_hand']:g} en existencia, "
-                f"{row['available']:g} disponibles ({row['uom']})"
+                (
+                    f"• {row['product']}: {row['on_hand']:g} en existencia, "
+                    f"{row['available']:g} disponibles ({row['uom']})"
+                    + (f" — {row['company']}" if row.get("company") else "")
+                )
                 for row in sanitize_rows(rows)
             )
             return {
@@ -443,14 +480,20 @@ class AssistedQueryAI(models.AbstractModel):
                 "tool": tool,
                 "rows": rows,
                 "answer": f"Hay varios productos que coinciden; indica cuál necesitas:\n{lines}",
+                "company_ids": selected_company_ids,
             }
         if tool == "search_products":
-            names = "\n".join(f"• {row['name']}" for row in sanitize_rows(rows))
+            names = "\n".join(
+                f"• {row['name']}"
+                + (f" — {row['company']}" if row.get("company") else "")
+                for row in sanitize_rows(rows)
+            )
             return {
                 "ok": True,
                 "tool": tool,
                 "rows": rows,
                 "answer": f"Encontré varios productos, ¿cuál de ellos?\n{names}",
+                "company_ids": selected_company_ids,
             }
 
         try:
@@ -460,7 +503,13 @@ class AssistedQueryAI(models.AbstractModel):
         except AzureOpenAIError:
             return {"ok": False, "error": "ai_unavailable", "tool": tool}
 
-        return {"ok": True, "tool": tool, "rows": rows, "answer": answer_text}
+        return {
+            "ok": True,
+            "tool": tool,
+            "rows": rows,
+            "answer": answer_text,
+            "company_ids": selected_company_ids,
+        }
 
     @api.model
     def answer_public(self, question: str) -> dict[str, Any]:

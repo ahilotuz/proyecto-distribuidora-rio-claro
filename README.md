@@ -102,10 +102,13 @@ duplicates. Use **Extract Invoice Data** on the record as with email.
    then offers an optional email; it stores the email only if the user provides
    one, and `Omitir` continues without it. Public features become available
    after this choice. New contacts have no private permissions. An
-   administrator can grant selected permissions from the contact record; set
-   a supplier/customer role and partner when needed. Disabling **Bot access**
-   blocks all bot features, including public information and voice. Use the
-   **Archived** filter to find and reactivate a blocked contact.
+   administrator can change the role and configure allowed companies and
+   individual permissions from the contact record. Internal contacts need
+   one or more allowed companies; suppliers/customers also need their linked
+   partner. Public contacts have no company assignment and cannot receive
+   private permissions. Disabling **Bot access** blocks all bot features,
+   including public information and voice. Use the **Archived** filter to
+   find and reactivate a blocked contact.
 3. Set `rioclaro_invoice_inbox.telegram_polling_enabled` to `True` in the one
    database that should poll the bot. Polling is off by default because a bot
    token must be polled by a single database only; otherwise databases
@@ -114,15 +117,18 @@ duplicates. Use **Extract Invoice Data** on the record as with email.
    published product catalog, public prices, and published website content.
    Voice notes are limited to 60 seconds; replies contain both audio and text.
    Private business queries and invoice submission require the corresponding
-   permission granted in Odoo, and the assistant applies that contact's
-   partner/company scope. An attachment sent as the first message is not
+   permission granted in Odoo. Every private query must explicitly name one
+   or more allowed companies; supplier/customer queries are additionally
+   limited to the linked partner. If the company is omitted, the bot asks
+   which allowed company to use; unauthorized companies are denied. Public
+   catalog/FAQ questions do not require a company. An attachment sent as the first message is not
    downloaded or retained; resend it after an administrator grants invoice
    permission. Each Telegram user is limited to 5 requests per rolling
    5-minute window. Group-chat messages are ignored, and blocked contacts
    cannot use any bot feature.
 5. Administrators can inspect **Invoice Intake → Assisted Query Audit**.
-   The audit records Telegram user ID, selected tool, outcome, input type, and
-   message ID, including onboarding events. It does not store questions,
+   The audit records Telegram user ID, selected tool, queried companies,
+   outcome, input type, and message ID, including onboarding events. It does not store questions,
    answers, email addresses, voice audio, or transcripts.
 
 Private Telegram features use the contact ACL; public text questions are

@@ -69,8 +69,16 @@ class TelegramContact(models.Model):
     email = fields.Char(string="Email")
     company_id = fields.Many2one(
         "res.company",
-        required=True,
-        default=lambda self: self.env.company,
+        string="Legacy Company",
+        help="Retained for compatibility; private query scope uses Allowed Companies.",
+    )
+    allowed_company_ids = fields.Many2many(
+        "res.company",
+        relation="rioclaro_telegram_contact_company_rel",
+        column1="contact_id",
+        column2="company_id",
+        string="Allowed Companies",
+        default=lambda self: [(6, 0, [self.env.company.id])],
     )
     onboarding_state = fields.Selection(
         [
@@ -123,6 +131,26 @@ class TelegramContact(models.Model):
                     _("Suppliers and customers must be linked to a partner.")
                 )
 
+    @api.constrains("role", "allowed_company_ids", *PERMISSION_FIELDS)
+    def _check_role_access_scope(self) -> None:
+        """Keep public contacts public-only and require company scope for others."""
+        for contact in self:
+            has_private_permissions = any(
+                contact[field] for field in PERMISSION_FIELDS
+            )
+            if contact.role == "public":
+                if contact.allowed_company_ids or has_private_permissions:
+                    raise ValidationError(
+                        _(
+                            "Public contacts cannot be assigned companies or "
+                            "private permissions."
+                        )
+                    )
+            elif not contact.allowed_company_ids:
+                raise ValidationError(
+                    _("Assign at least one allowed company to this contact.")
+                )
+
     @api.constrains("email")
     def _check_email(self) -> None:
         """Validate an optional email address before storing it."""
@@ -138,10 +166,15 @@ class TelegramContact(models.Model):
 
     @api.onchange("role")
     def _onchange_role(self) -> None:
-        """Preload the role's default permissions in the form."""
+        """Preload role defaults and keep public contacts outside private scope."""
         if self.role:
             for field, value in self._role_default_values(self.role).items():
                 self[field] = value
+            if self.role == "public":
+                self.allowed_company_ids = self.env["res.company"]
+                self.company_id = False
+            elif not self.allowed_company_ids:
+                self.allowed_company_ids = self.env.company
 
     @api.model_create_multi
     def create(self, vals_list: list[dict]) -> models.Model:
@@ -150,6 +183,9 @@ class TelegramContact(models.Model):
             if vals.get("role"):
                 for field, value in self._role_default_values(vals["role"]).items():
                     vals.setdefault(field, value)
+                if vals["role"] == "public":
+                    vals.setdefault("allowed_company_ids", [(5, 0, 0)])
+                    vals.setdefault("company_id", False)
         return super().create(vals_list)
 
     @api.model
@@ -185,6 +221,8 @@ class TelegramContact(models.Model):
             "name": name or _("Telegram user %s") % telegram_user_id,
             "telegram_user_id": str(telegram_user_id),
             "role": "public",
+            "allowed_company_ids": [(5, 0, 0)],
+            "company_id": False,
             "onboarding_state": "awaiting_name",
             "onboarding_last_message_id": initial_message_id,
         }

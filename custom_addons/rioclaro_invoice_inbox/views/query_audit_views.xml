@@ -9,6 +9,7 @@
                 <field name="telegram_user_id"/>
                 <field name="contact_id"/>
                 <field name="company_id" groups="base.group_multi_company"/>
+                <field name="company_ids" widget="many2many_tags"/>
                 <field name="input_type"/>
                 <field name="tool"/>
                 <field name="outcome"/>

@@ -236,7 +236,15 @@ class TestQueryService(TransactionCase):
         row = self.service.run_tool(1, "recent_sales")["rows"][0]
         self.assertEqual(
             set(row),
-            {"reference", "partner", "date", "state", "total", "currency"},
+            {
+                "reference",
+                "company",
+                "partner",
+                "date",
+                "state",
+                "total",
+                "currency",
+            },
         )
 
     def test_invoices_scoped_by_role_and_partner(self):

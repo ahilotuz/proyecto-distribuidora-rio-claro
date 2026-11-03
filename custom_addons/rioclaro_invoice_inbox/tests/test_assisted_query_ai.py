@@ -143,14 +143,26 @@ class TestAssistedQueryAI(TransactionCase):
         summarize_mock,
     ):
         choose_tool_mock.return_value = type("Choice", (), {"tool": "recent_sales", "text": ""})()
-        run_tool_mock.return_value = {"ok": True, "tool": "recent_sales", "rows": [{"reference": "S00027"}]}
+        run_tool_mock.return_value = {
+            "ok": True,
+            "tool": "recent_sales",
+            "rows": [{"reference": "S00027"}],
+            "company_ids": [self.env.company.id],
+        }
         summarize_mock.return_value = "• S00027"
 
-        result = self.ai.answer(1, "ventas recientes")
+        result = self.ai.answer(
+            1, f"ventas recientes en {self.env.company.name}"
+        )
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["tool"], "recent_sales")
-        run_tool_mock.assert_called_once_with(1, "recent_sales", "")
+        run_tool_mock.assert_called_once_with(
+            1,
+            "recent_sales",
+            "",
+            company_ids=[self.env.company.id],
+        )
 
     @patch.dict(
         "os.environ",
@@ -166,6 +178,6 @@ class TestAssistedQueryAI(TransactionCase):
         choose_tool_mock.return_value = type("Choice", (), {"tool": "recent_sales", "text": ""})()
         run_tool_mock.return_value = {"ok": False, "error": "denied"}
 
-        result = self.ai.answer(1, "ventas")
+        result = self.ai.answer(1, f"ventas en {self.env.company.name}")
 
         self.assertEqual(result, {"ok": False, "error": "denied", "tool": "recent_sales"})

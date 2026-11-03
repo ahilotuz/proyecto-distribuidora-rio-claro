@@ -9,12 +9,13 @@ the official Azure Text Analytics SDK, and returns one of:
 - `inspect_attachments`: a high-confidence `supplier_invoice` with attachments.
 
 The Odoo invoice inbox add-on can call this endpoint before creating an intake
-record. It retains the invoice-intake route only for
-`supplier_invoice`/`inspect_attachments`; other classifications are excluded
-from that route. This is not attachment inspection: the Function does not
-download or verify files, confirm an invoice document, or extract invoice
-data. Treat the result as an email-screening practice integration only, not
-production invoice validation.
+record. It retains high-confidence `supplier_invoice`/`inspect_attachments`
+emails and `review` emails in the intake queue. Review emails require a human
+to decide whether they are invoices; extraction and bill creation remain
+manual. High-confidence `not_invoice`/`ignore` emails are excluded. This is
+not attachment inspection: the Function does not download or verify files,
+confirm an invoice document, or extract invoice data. Treat the result as an
+email-screening practice integration only, not production invoice validation.
 
 ## Classifier setup
 
@@ -82,19 +83,19 @@ call the Function's `screen-email` endpoint with:
 ```
 
 Initially configure all three routes as non-destructive test branches that log
-message IDs only (not email bodies or attachments). Once evaluated:
+message IDs only (not email bodies or attachments). Once evaluated, the direct
+Odoo IMAP integration handles them as follows:
 
 1. `ignore`: leave the message in its original inbox; do not send it to Odoo.
-2. `review`: move/copy it to a dedicated review folder; do not send it to Odoo.
-3. `inspect_attachments`: pass supported PDFs and images to Azure AI Document
-   Intelligence's prebuilt invoice model and parse XML separately. Only after
-   an attachment is confirmed as an invoice should the Logic App forward the
-   original message and attachments to Odoo.
+2. `review`: create an intake record for a person to review; do not extract
+   data or create a bill automatically.
+3. `inspect_attachments`: create an intake record with the original email and
+   attachments. A person reviews it and starts extraction manually.
 
 For an initial safe rollout, monitor the invoice and review branches without
-moving or deleting source messages. Disable direct Odoo IMAP polling on general
-purpose mailboxes before connecting Logic Apps, otherwise Odoo will continue
-importing unfiltered mail.
+moving or deleting source messages. If using a separate Logic Apps workflow,
+disable direct Odoo IMAP polling on general-purpose mailboxes to avoid having
+both systems process the same messages.
 
 ## Local checks
 

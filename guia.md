@@ -1554,6 +1554,9 @@ Test the endpoint (route `screen-email`, auth level FUNCTION):
    appears in Invoice Intake > Supplier Invoice Emails with the sender, the
    mailbox and the received time.
    ![Intake record created from the email](docs/screenshots/e1-11-odoo-intake-record-from-email.png)
+   Low-confidence messages classified as `review` also appear in this intake
+   list for a person to inspect. High-confidence non-invoices classified as
+   `ignore` are excluded. Neither route starts extraction or creates a bill.
 3. Open it: the email body and attachments are in the chatter, the extraction
    status is *Pending Extraction* and the amounts are 0.
    ![Before extraction](docs/screenshots/e1-12-odoo-intake-before-extraction.png)
@@ -1572,7 +1575,7 @@ and make sure the VM runs the merged `main`.
 
 5. Negative test: email a non-invoice message (for example "te invito a comer
    el viernes") to the mailbox and press **Fetch Now**. No record appears in
-   **Supplier Emails**; the screening Function returned `ignore`.
+   **Supplier Emails** when the screening Function returns `ignore`.
 6. On an extracted record press **Create Vendor Bill**. The draft bill carries
    the vendor, invoice number, date, the extracted line and the purchase tax
    (IVA 16% = $5.60, total $40.60), plus copies of the attachments.

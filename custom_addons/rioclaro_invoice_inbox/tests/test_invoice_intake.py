@@ -184,6 +184,20 @@ class TestSupplierInvoiceEmailIntake(TransactionCase):
 
         self.assertEqual(filtered, routes)
 
+    def test_screening_routes_low_confidence_email_for_manual_review(self):
+        routes = [
+            ("rioclaro.invoice.intake", False, {}, self.env.uid, False),
+            ("res.partner", False, {}, self.env.uid, False),
+        ]
+
+        filtered = self.env["mail.thread"]._filter_invoice_intake_routes(
+            routes,
+            {"route": "review", "label": "not_invoice", "confidence": 0.72},
+            "<uncertain@example.test>",
+        )
+
+        self.assertEqual(filtered, routes)
+
     def test_screening_removes_non_invoice_intake_route(self):
         routes = [
             ("rioclaro.invoice.intake", False, {}, self.env.uid, False),

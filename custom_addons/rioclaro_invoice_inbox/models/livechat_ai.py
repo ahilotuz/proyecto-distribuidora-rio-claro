@@ -5,11 +5,18 @@ from typing import Any
 from odoo import _, fields, models
 from odoo.tools import html2plaintext
 
+from .chat_help import is_capability_help_request
 from .public_product_links import link_public_products as _link_public_products
 
 _logger = logging.getLogger(__name__)
 _LIVECHAT_AI_QUERY_LIMIT = 5
 _LIVECHAT_AI_WINDOW_MINUTES = 5
+_PUBLIC_LIVECHAT_HELP_RESPONSE = (
+    "Puedo ayudarte a encontrar productos con base en el catálogo publicado y "
+    "responder preguntas sobre información pública del sitio web. No puedo "
+    "consultar precios, existencias ni datos de pedidos o clientes. Para esos "
+    "temas, deja tu mensaje y un agente podrá ayudarte."
+)
 
 
 class LivechatChannel(models.Model):
@@ -77,22 +84,25 @@ class DiscussChannel(models.Model):
             )
             return result
 
-        answer = self.env["rioclaro.assisted.query.ai"].answer_public(question)
-        if answer.get("ok"):
-            reply = answer["answer"]
-            if answer.get("tool") == "public_catalog":
-                reply = _link_public_products(reply, answer.get("rows", []))
+        if is_capability_help_request(question):
+            reply = _PUBLIC_LIVECHAT_HELP_RESPONSE
         else:
-            _logger.warning(
-                "Public Live Chat AI failed for channel %s, message %s: %s",
-                self.id,
-                message.id,
-                answer.get("error", "unknown error"),
-            )
-            reply = _(
-                "No puedo responder en este momento. Deja tu mensaje y un agente "
-                "te ayudará."
-            )
+            answer = self.env["rioclaro.assisted.query.ai"].answer_public(question)
+            if answer.get("ok"):
+                reply = answer["answer"]
+                if answer.get("tool") == "public_catalog":
+                    reply = _link_public_products(reply, answer.get("rows", []))
+            else:
+                _logger.warning(
+                    "Public Live Chat AI failed for channel %s, message %s: %s",
+                    self.id,
+                    message.id,
+                    answer.get("error", "unknown error"),
+                )
+                reply = _(
+                    "No puedo responder en este momento. Deja tu mensaje y un agente "
+                    "te ayudará."
+                )
 
         self.sudo().message_post(
             body=reply,

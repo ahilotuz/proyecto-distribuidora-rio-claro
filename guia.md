@@ -1650,6 +1650,9 @@ contact permissions.
   published website pages. Product recommendations link product names to their
   public Odoo shop pages. It cannot access prices, inventory, customer records,
   orders, invoices, sales, or purchases.
+- Anonymous visitors can ask `/help`, `/ayuda`, or `¿Qué puedes hacer?` to
+  receive a deterministic summary of public capabilities. The response does
+  not list or imply access to Telegram's permission-gated private features.
 - The feature is disabled by default. Enable it only on the Live Chat channel
   intended for website visitors. Native-chatbot conversations are left to the
   chatbot. Odoo shows the chat bubble and starts a session only while at least

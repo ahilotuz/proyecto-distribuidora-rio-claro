@@ -7,6 +7,9 @@ from odoo.addons.rioclaro_invoice_inbox.models.speech_client import (
     AzureSpeechClient,
     SpeechError,
 )
+from odoo.addons.rioclaro_invoice_inbox.models.chat_help import (
+    is_capability_help_request,
+)
 from odoo.addons.rioclaro_invoice_inbox.models.telegram_client import (
     TelegramClient,
     TelegramError,
@@ -386,8 +389,8 @@ class TestTelegramIntake(TransactionCase):
             "menú",
         ):
             with self.subTest(text=text):
-                self.assertTrue(self.intake._is_telegram_help_request(text))
-        self.assertFalse(self.intake._is_telegram_help_request("ventas de abril"))
+                self.assertTrue(is_capability_help_request(text))
+        self.assertFalse(is_capability_help_request("ventas de abril"))
 
     @patch.dict("os.environ", {"RIOCLARO_TELEGRAM_BOT_TOKEN": "123:fake"})
     @patch.object(TelegramClient, "get_updates")

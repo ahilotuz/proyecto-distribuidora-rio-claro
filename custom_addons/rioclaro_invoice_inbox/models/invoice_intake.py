@@ -1,8 +1,6 @@
 import json
 import logging
 import os
-import re
-import unicodedata
 from datetime import timedelta
 from hashlib import sha256
 from typing import Literal
@@ -10,6 +8,7 @@ from typing import Literal
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
+from .chat_help import is_capability_help_request
 from .document_intelligence import (
     AzureDocumentIntelligenceClient,
     DocumentIntelligenceError,
@@ -30,19 +29,6 @@ _TELEGRAM_RATE_WINDOW_PARAM = "rioclaro_invoice_inbox.telegram_query_window_minu
 _TELEGRAM_QUERY_RATE_LIMIT = 5
 _TELEGRAM_QUERY_WINDOW_MINUTES = 5
 _TELEGRAM_MAX_REPLY_LENGTH = 4000
-_TELEGRAM_HELP_COMMANDS = frozenset({"/start", "/help", "/ayuda"})
-_TELEGRAM_HELP_QUESTIONS = frozenset(
-    {
-        "ayuda",
-        "como me puedes ayudar",
-        "que puedes hacer",
-        "que puedes hacer por mi",
-        "que puedo consultar",
-        "que consultas puedes hacer",
-        "que sabes hacer",
-        "menu",
-    }
-)
 _TELEGRAM_PRIVATE_CAPABILITY_LABELS = (
     ("can_query_inventory", "Consultar existencias y disponibilidad de productos"),
     ("can_query_purchases", "Consultar compras"),
@@ -273,23 +259,6 @@ class SupplierInvoiceIntake(models.Model):
         return self.env["rioclaro.telegram.contact"].is_allowed(
             sender_id, "can_submit_vendor_invoice"
         )
-
-    @api.model
-    def _is_telegram_help_request(self, text: str | None) -> bool:
-        """Return whether text is a supported help command or capability question."""
-        if not text:
-            return False
-        command = text.strip().split(maxsplit=1)[0].split("@", 1)[0].casefold()
-        if command in _TELEGRAM_HELP_COMMANDS:
-            return True
-        normalized = unicodedata.normalize("NFD", text.casefold())
-        normalized = "".join(
-            character
-            for character in normalized
-            if not unicodedata.combining(character)
-        )
-        normalized = " ".join(re.sub(r"[^\w\s]", " ", normalized).split())
-        return normalized in _TELEGRAM_HELP_QUESTIONS
 
     @api.model
     def _telegram_help_response(self, contact: models.Model) -> str:
@@ -603,7 +572,7 @@ class SupplierInvoiceIntake(models.Model):
                 )
                 return
 
-        if self._is_telegram_help_request(question):
+        if is_capability_help_request(question):
             result = {
                 "ok": True,
                 "tool": "help",

@@ -1648,8 +1648,10 @@ contact permissions.
 
 - The assistant can search only published product names/descriptions and
   published website pages. Product recommendations link product names to their
-  public Odoo shop pages. It cannot access prices, inventory, customer records,
-  orders, invoices, sales, or purchases.
+  public Odoo shop pages and may include the price shown to an anonymous visitor
+  under the default public website pricelist, currency, fiscal position, and tax
+  display. It cannot access inventory, costs, margins, customer records, orders,
+  invoices, sales, or purchases.
 - Anonymous visitors can ask `/help`, `/ayuda`, or `¿Qué puedes hacer?` to
   receive a deterministic summary of public capabilities. The response does
   not list or imply access to Telegram's permission-gated private features.
@@ -1686,8 +1688,10 @@ contact permissions.
 3. Open the public website in a private/incognito browser window and start a
    new Live Chat conversation. Ask a question answered directly by a published
    product description or FAQ page, and confirm the reply appears in the chat.
-4. Ask for a price, stock quantity, or private order detail. The assistant
-   must not provide those details. Send six questions within five minutes to
+4. Ask for a product price and then for the cheapest product among a matching
+   group. Confirm the reply uses the public shop price and identifies its
+   currency and tax display. Ask for stock or private order details; the
+   assistant must not provide them. Send six questions within five minutes to
    verify that the sixth receives the rate-limit message.
 5. Disable **Río Claro AI assistant**, start a fresh conversation, and confirm
    the AI no longer replies. Native-chatbot conversations, and conversations
@@ -1696,13 +1700,15 @@ contact permissions.
 ### Production verification (2026-11-02)
 
 Verified on the production Odoo site after deploying commit `3eb8154`; the
-general catalog-list behavior was retested after deploying `e10e514`:
+general catalog-list behavior was retested after deploying `e10e514`. These
+checks predate public price support:
 
 - An anonymous visitor received a product recommendation for Limpia Pisos
   Multiusos 1L. The assistant correctly said the available catalog text did not
   confirm lavender scent.
-- When asked for prices and stock, the assistant stated that the catalog does
-  not show those details.
+- At that time, when asked for prices and stock, the assistant stated that the
+  catalog did not show those details. Public prices are now supported; stock
+  remains private.
 - The sixth question sent within the five-minute window received
   `Espera unos minutos antes de volver a consultar.`
 - After the human operator replied, the visitor's next question received no AI
@@ -1711,8 +1717,8 @@ general catalog-list behavior was retested after deploying `e10e514`:
   `No encontré resultados para tu consulta.` After deploying the general catalog
   search fix (`e10e514`), a fresh anonymous chat returned a list including
   Limpia Pisos Multiusos 1L, Detergente Multiusos 1kg, Cloro Clorox Original,
-  Harpic Power Ultra, and Cloralex Total Power. The reply included no prices or
-  stock quantities.
+  Harpic Power Ultra, and Cloralex Total Power. At that time the reply included
+  no prices or stock quantities.
 
 ### Local verification
 
@@ -1749,11 +1755,13 @@ as product descriptions mentioning dishwashing.
 - Private business tools are offered only when the contact has the matching
   permission enabled on its Odoo Telegram contact. The query service checks
   that permission again and retains its existing partner and company scopes.
-- Public recommendations include only published names and website
-  descriptions; they do not include prices, stock, sales, invoices, or
-  customer data. Unpublished products remain excluded. In Telegram, exact
-  product names link to their published shop pages using Odoo's configured
-  `web.base.url`; only `/shop/...` paths are linked.
+- Public recommendations include only published names, website descriptions,
+  and the price displayed to an anonymous visitor under the default public
+  website pricelist, currency, fiscal position, and tax display. Cheapest-price
+  questions compare matching public website prices. Unpublished products,
+  stock, costs, margins, sales, invoices, and customer data remain excluded.
+  In Telegram, exact product names link to their published shop pages using
+  Odoo's configured `web.base.url`; only `/shop/...` paths are linked.
 - Existing Telegram query auditing and per-contact rate limits also apply to
   public questions.
 
@@ -1769,8 +1777,9 @@ contacts remain denied, and the help response does not use Azure OpenAI.
 2. In Telegram, ask `¿Qué producto me sirve para lavar trastes?` from an active
    contact. Confirm the reply recommends a product whose published
    description matches the use, such as Salvo. Confirm its product name is a
-   clickable link to the shop page and that the reply does not disclose stock
-   or prices.
+   clickable link to the shop page. Ask for the cheapest laundry product and
+   verify the public sale price, currency, and tax note match its shop page.
+   Confirm the bot does not disclose stock, costs, or margins.
 3. Use a second active contact with all private query permissions disabled.
    Confirm it can ask the same public question but cannot retrieve private
    sales, inventory, invoice, or order data.

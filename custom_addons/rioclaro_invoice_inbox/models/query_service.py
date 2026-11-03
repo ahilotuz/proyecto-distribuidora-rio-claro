@@ -8,6 +8,7 @@ return a fixed set of fields.
 """
 
 import re
+import unicodedata
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
@@ -26,20 +27,37 @@ MIN_TOKEN_LENGTH = 3
 PUBLIC_TOOL_NAMES = frozenset({"public_catalog", "public_faq"})
 _PUBLIC_CATALOG_LIST_TERMS = frozenset(
     {
+        "barata",
+        "baratas",
+        "barato",
+        "baratos",
         "catalogo",
         "catálogo",
         "disponible",
         "disponibles",
+        "economica",
+        "economicas",
+        "economico",
+        "economicos",
         "hay",
         "lista",
         "listar",
         "listado",
+        "mas",
+        "menos",
+        "menor",
         "ofrece",
         "ofrecen",
+        "precio",
+        "precios",
         "producto",
         "productos",
         "que",
         "qué",
+        "costosa",
+        "costosas",
+        "costoso",
+        "costosos",
         "tiene",
         "tienen",
         "venden",
@@ -49,6 +67,38 @@ _PUBLIC_CATALOG_LIST_TERMS = frozenset(
 _STOPWORDS = frozenset(
     {"para", "con", "sin", "del", "los", "las", "una", "uno", "por", "que", "de", "el", "la"}
 )
+_LOWEST_PRICE_PHRASES = (
+    "mas barato",
+    "mas barata",
+    "mas baratos",
+    "mas baratas",
+    "mas economico",
+    "mas economica",
+    "mas economicos",
+    "mas economicas",
+    "menor precio",
+    "precio mas bajo",
+    "cuesta menos",
+    "menos costoso",
+    "menos costosa",
+    "menos costosos",
+    "menos costosas",
+)
+
+
+def is_lowest_public_price_question(text: str) -> bool:
+    """Return whether a question asks for the least expensive matching product."""
+    normalized = unicodedata.normalize("NFD", text.casefold())
+    normalized = "".join(
+        character
+        for character in normalized
+        if not unicodedata.combining(character)
+    )
+    normalized = " ".join(re.sub(r"[^\w\s]", " ", normalized).split())
+    padded_text = f" {normalized} "
+    return any(
+        f" {phrase} " in padded_text for phrase in _LOWEST_PRICE_PHRASES
+    )
 
 # tool name -> (required permission, method name)
 TOOL_REGISTRY: dict[str, tuple[str, str]] = {
@@ -115,8 +165,9 @@ class QueryService(models.AbstractModel):
     def run_public_tool(self, tool: str, text: str = "") -> dict[str, Any]:
         """Run a query that returns only information already published publicly.
 
-        This entry point is for anonymous website visitors. It deliberately
-        does not expose inventory, prices, sales, invoices, or customer data.
+        This entry point is for anonymous website visitors. It may return the
+        public shop price for published products, but never inventory, costs,
+        margins, sales, invoices, or customer data.
         """
         clean_text = (text or "").strip()
         if len(clean_text) > MAX_TEXT_LENGTH:
@@ -132,7 +183,7 @@ class QueryService(models.AbstractModel):
 
     @api.model
     def _public_catalog(self, text: str) -> list[dict[str, Any]]:
-        """Find published products using only names and public website descriptions."""
+        """Find published products and only their default public website prices."""
         normalized_text = re.sub(r"[^\w\s]", " ", text.lower())
         tokens = [
             token
@@ -160,6 +211,7 @@ class QueryService(models.AbstractModel):
             order="name, id",
             limit=MAX_CANDIDATES * 5,
         )
+        pricing_context = self._public_website_pricing_context()
         matches = []
         for product in products:
             description = " ".join(
@@ -174,6 +226,11 @@ class QueryService(models.AbstractModel):
             score = sum(token in searchable for token in tokens)
             if tokens and not score:
                 continue
+            public_price = (
+                self._public_website_product_price(product, pricing_context)
+                if pricing_context
+                else None
+            )
             matches.append(
                 (
                     -score,
@@ -182,10 +239,137 @@ class QueryService(models.AbstractModel):
                         "name": product.name,
                         "description": description[:600],
                         "url": product.website_url,
+                        "website_price": (
+                            public_price["website_price"] if public_price else None
+                        ),
+                        "currency": public_price["currency"] if public_price else None,
+                        "currency_decimal_places": (
+                            public_price["currency_decimal_places"]
+                            if public_price
+                            else None
+                        ),
+                        "price_tax_included": (
+                            public_price["price_tax_included"]
+                            if public_price
+                            else None
+                        ),
                     },
                 )
             )
-        return [row for _, _, row in sorted(matches)[:MAX_CANDIDATES]]
+        if is_lowest_public_price_question(text):
+            matches.sort(
+                key=lambda match: (
+                    match[0],
+                    match[2]["website_price"] is None,
+                    match[2]["website_price"]
+                    if match[2]["website_price"] is not None
+                    else float("inf"),
+                    match[1],
+                )
+            )
+        else:
+            matches.sort()
+        return [row for _, _, row in matches[:MAX_CANDIDATES]]
+
+    @api.model
+    def _public_website_pricing_context(
+        self,
+    ) -> (
+        tuple[
+            models.Model,
+            models.Model,
+            models.Model,
+            models.Model,
+            str | bool,
+        ]
+        | None
+    ):
+        """Resolve the default public website, pricelist, currency, and tax display."""
+        website_model = self.env["website"].sudo()
+        website_id = self.env.context.get("website_id")
+        website = website_model.browse(website_id).exists() if website_id else website_model
+        if not website:
+            website = website_model.search([], order="sequence, id", limit=1)
+        if not website:
+            return None
+
+        public_user = website.user_id
+        website = (
+            website.with_user(public_user)
+            .with_company(website.company_id)
+            .with_context(website_id=website.id)
+        )
+        pricelists = website.get_pricelist_available()
+        partner_pricelist = public_user.partner_id.specific_property_product_pricelist
+        pricelist = (
+            partner_pricelist
+            if partner_pricelist in pricelists
+            else pricelists[:1]
+        ).sudo()
+        currency = pricelist.currency_id or website.company_id.currency_id
+        fiscal_position = (
+            self.env["account.fiscal.position"]
+            .sudo()
+            .with_company(website.company_id)
+            ._get_fiscal_position(public_user.partner_id)
+        )
+        tax_display = (
+            pricelist.tax_display or website.show_line_subtotals_tax_selection
+        )
+        return website, pricelist, fiscal_position, currency, tax_display
+
+    @api.model
+    def _public_website_product_price(
+        self,
+        product: models.Model,
+        pricing_context: tuple[
+            models.Model,
+            models.Model,
+            models.Model,
+            models.Model,
+            str | bool,
+        ],
+    ) -> dict[str, Any] | None:
+        """Compute the amount shown to an anonymous visitor for one product."""
+        website, pricelist, fiscal_position, currency, tax_display = pricing_context
+        product = (
+            product.with_user(website.user_id)
+            .with_company(website.company_id)
+            .with_context(website_id=website.id)
+        )
+        if pricelist:
+            price, _rule_id = pricelist._get_product_price_rule(
+                product=product,
+                quantity=1.0,
+                uom=product._get_main_uom(),
+                currency=currency,
+            )
+        else:
+            price = product.list_price
+
+        product_taxes = product.sudo().taxes_id._filter_taxes_by_company()
+        taxes = fiscal_position.map_tax(product_taxes)
+        price = product._apply_taxes_to_price(
+            price,
+            currency,
+            product_taxes=product_taxes,
+            taxes=taxes,
+            tax_display=(
+                "total_excluded"
+                if tax_display == "tax_excluded"
+                else "total_included"
+            ),
+            website=website,
+        )
+        price = currency.round(price)
+        if currency.is_zero(price) and website._prevent_product_sale(product, True):
+            return None
+        return {
+            "website_price": price,
+            "currency": currency.name,
+            "currency_decimal_places": currency.decimal_places,
+            "price_tax_included": tax_display == "tax_included",
+        }
 
     @api.model
     def _public_faq(self, text: str) -> list[dict[str, Any]]:

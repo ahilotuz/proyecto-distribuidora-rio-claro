@@ -148,8 +148,9 @@ class TestWebsiteLivechatAI(TransactionCase):
         ]
         self.assertEqual(len(replies), 1)
         self.assertIn("catálogo publicado", replies[0])
-        self.assertIn("información pública del sitio web", replies[0])
-        self.assertIn("No puedo consultar precios, existencias", replies[0])
+        self.assertIn("información publicada en el sitio web", replies[0])
+        self.assertIn("precios públicos", replies[0])
+        self.assertIn("No puedo consultar existencias", replies[0])
         self.assertNotIn("consultas privadas habilitadas", replies[0])
 
     def test_public_ai_rate_limits_guest_without_calling_model(self):

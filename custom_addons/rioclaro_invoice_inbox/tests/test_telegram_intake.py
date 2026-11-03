@@ -326,7 +326,8 @@ class TestTelegramIntake(TransactionCase):
 
         answer_mock.assert_not_called()
         response = send_mock.call_args.args[1]
-        self.assertIn("catálogo público", response)
+        self.assertIn("catálogo publicado", response)
+        self.assertIn("precios públicos", response)
         self.assertIn("información publicada", response)
         self.assertIn("No tienes habilitadas consultas de datos privados", response)
         self.assertNotIn("Consultar ventas", response)

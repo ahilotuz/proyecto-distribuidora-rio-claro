@@ -126,7 +126,15 @@ duplicates. Use **Extract Invoice Data** on the record as with email.
    permission. Each Telegram user is limited to 5 requests per rolling
    5-minute window. Group-chat messages are ignored, and blocked contacts
    cannot use any bot feature.
-5. Administrators can inspect **Invoice Intake → Assisted Query Audit**.
+5. Administrators can customize Telegram wording in **Settings → Río Claro
+   Chatbot**. Select a global tone preset (friendly, formal, concise, or
+   detailed); it affects the first-contact name prompt and AI-generated
+   Telegram answers. An optional custom style instruction (up to 500
+   characters) affects AI phrasing only and cannot change facts or access
+   rules. An optional custom first-contact greeting (up to 500 characters)
+   replaces the preset greeting for new contacts. Fixed permission/error
+   messages and Website Live Chat are unaffected.
+6. Administrators can inspect **Invoice Intake → Assisted Query Audit**.
    The audit records Telegram user ID, selected tool, queried companies,
    outcome, input type, and message ID, including onboarding events. It does not store questions,
    answers, email addresses, voice audio, or transcripts.

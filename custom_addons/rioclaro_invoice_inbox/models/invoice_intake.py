@@ -17,6 +17,13 @@ from .document_intelligence import (
 from .public_product_links import link_public_products
 from .speech_client import AzureSpeechClient, SpeechError
 from .telegram_client import TelegramClient, TelegramError, TelegramMessage
+from .telegram_response_style import (
+    DEFAULT_TELEGRAM_RESPONSE_STYLE,
+    MAX_CUSTOM_ONBOARDING_GREETING_LENGTH,
+    TELEGRAM_ONBOARDING_GREETING_PARAM,
+    TELEGRAM_RESPONSE_STYLE_PARAM,
+    get_telegram_response_style,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -462,10 +469,28 @@ class SupplierInvoiceIntake(models.Model):
     def _telegram_onboarding_prompt(self, contact: models.Model) -> str:
         """Return the next onboarding prompt for a Telegram contact."""
         if contact.onboarding_state == "awaiting_name":
-            return (
-                "¡Hola! Para crear tu perfil de Telegram en Odoo, "
-                "¿qué nombre quieres usar?"
+            params = self.env["ir.config_parameter"].sudo()
+            style_key = params.get_str(
+                TELEGRAM_RESPONSE_STYLE_PARAM,
+                default=DEFAULT_TELEGRAM_RESPONSE_STYLE,
             )
+            greeting = get_telegram_response_style(style_key).onboarding_greeting
+            custom_greeting = (
+                params.get_str(TELEGRAM_ONBOARDING_GREETING_PARAM, default="")
+                or ""
+            ).strip()
+            if len(custom_greeting) > MAX_CUSTOM_ONBOARDING_GREETING_LENGTH:
+                _logger.error(
+                    "Configured Telegram onboarding greeting exceeds %s characters.",
+                    MAX_CUSTOM_ONBOARDING_GREETING_LENGTH,
+                )
+                raise UserError(
+                    _(
+                        "The custom Telegram first-contact greeting must be "
+                        "500 characters or fewer."
+                    )
+                )
+            return custom_greeting or greeting
         if contact.onboarding_state == "awaiting_email":
             return (
                 f"Gracias, {contact.name}. ¿Cuál es tu correo electrónico? "

@@ -1797,6 +1797,13 @@ zero-permission `public` Telegram Contact and starts onboarding.
 - The five-request per-user, per-five-minute limit includes onboarding and
   public questions. Audit records include onboarding metadata but never store
   message text, email addresses, voice audio, or transcripts.
+- Administrators can set a global Telegram tone preset in **Settings → Río
+  Claro Chatbot** (friendly, formal, concise, or detailed). It affects the
+  first-contact name prompt and AI-generated Telegram answers. An optional
+  custom style instruction (up to 500 characters) affects AI phrasing only;
+  an optional custom greeting (up to 500 characters) replaces the preset
+  greeting for new contacts. These settings do not alter facts, permissions,
+  fixed error messages, or Website Live Chat.
 
 After onboarding, a contact can use `/start`, `/help`, `/ayuda`, or ask
 `¿Qué puedes hacer?` in a private chat to see public capabilities and only the

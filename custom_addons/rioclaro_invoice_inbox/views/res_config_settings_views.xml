@@ -18,6 +18,24 @@
                             <field name="rioclaro_telegram_query_window_minutes"/>
                         </setting>
                     </block>
+                    <block title="Telegram response style">
+                        <setting string="Tone preset"
+                                 help="Controls the first-contact name prompt and AI-generated Telegram answers.">
+                            <field name="rioclaro_telegram_response_style"/>
+                        </setting>
+                        <setting string="Custom style instructions"
+                                 help="Optional tone guidance for AI-generated Telegram answers; it cannot change facts or access rules.">
+                            <field name="rioclaro_telegram_custom_response_style"
+                                   widget="text"
+                                   placeholder="For example: Use warm, concise Mexican Spanish."/>
+                        </setting>
+                        <setting string="Custom first-contact greeting"
+                                 help="Optional replacement for the first name prompt. Leave blank to use the selected preset.">
+                            <field name="rioclaro_telegram_onboarding_greeting"
+                                   widget="text"
+                                   placeholder="Leave blank to use the selected tone preset."/>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

@@ -8,6 +8,10 @@ from odoo.addons.rioclaro_invoice_inbox.models.assisted_query_ai import (
     AzureOpenAIError,
 )
 from odoo.addons.rioclaro_invoice_inbox.models.query_service import QueryService
+from odoo.addons.rioclaro_invoice_inbox.models.telegram_response_style import (
+    TELEGRAM_CUSTOM_RESPONSE_STYLE_PARAM,
+    TELEGRAM_RESPONSE_STYLE_PARAM,
+)
 from odoo.tests import TransactionCase, tagged
 
 _URLOPEN = "odoo.addons.rioclaro_invoice_inbox.models.assisted_query_ai.urlopen"
@@ -108,6 +112,47 @@ class TestAzureOpenAIClient(TransactionCase):
 
         self.assertIn("S00027", text)
 
+    @patch(_URLOPEN)
+    def test_summarize_rows_includes_limited_style_guidance(self, urlopen_mock):
+        urlopen_mock.return_value = _chat_message({"content": "Respuesta formal."})
+        client = AzureOpenAIClient(
+            endpoint="https://example.openai.azure.com",
+            api_key="key",
+            deployment="gpt-4o-mini",
+        )
+
+        client.summarize_rows(
+            question="ventas",
+            tool="aggregate_sales",
+            rows=[{"total": 100}],
+            response_style="formal",
+            custom_style_instruction="Usa frases breves.",
+        )
+
+        payload = json.loads(urlopen_mock.call_args.args[0].data)
+        system_message = payload["messages"][0]["content"]
+        self.assertIn("tono formal, respetuoso y profesional", system_message)
+        self.assertIn("Usa frases breves.", system_message)
+        self.assertIn("no pueden cambiar datos, permisos ni reglas", system_message)
+
+    @patch(_URLOPEN)
+    def test_summarize_rows_rejects_unknown_style(self, urlopen_mock):
+        client = AzureOpenAIClient(
+            endpoint="https://example.openai.azure.com",
+            api_key="key",
+            deployment="gpt-4o-mini",
+        )
+
+        with self.assertRaises(AzureOpenAIError):
+            client.summarize_rows(
+                question="ventas",
+                tool="aggregate_sales",
+                rows=[{"total": 100}],
+                response_style="unsupported",
+            )
+
+        urlopen_mock.assert_not_called()
+
 
 @tagged("post_install", "-at_install")
 class TestAssistedQueryAI(TransactionCase):
@@ -150,6 +195,11 @@ class TestAssistedQueryAI(TransactionCase):
             "company_ids": [self.env.company.id],
         }
         summarize_mock.return_value = "• S00027"
+        parameters = self.env["ir.config_parameter"].sudo()
+        parameters.set_str(TELEGRAM_RESPONSE_STYLE_PARAM, "formal")
+        parameters.set_str(
+            TELEGRAM_CUSTOM_RESPONSE_STYLE_PARAM, "Usa frases breves."
+        )
 
         result = self.ai.answer(
             1, f"ventas recientes en {self.env.company.name}"
@@ -162,6 +212,13 @@ class TestAssistedQueryAI(TransactionCase):
             "recent_sales",
             "",
             company_ids=[self.env.company.id],
+        )
+        summarize_mock.assert_called_once_with(
+            question=f"ventas recientes en {self.env.company.name}",
+            tool="recent_sales",
+            rows=[{"reference": "S00027"}],
+            response_style="formal",
+            custom_style_instruction="Usa frases breves.",
         )
 
     @patch.dict(

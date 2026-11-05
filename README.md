@@ -1,4 +1,4 @@
-# Distribuidora Río Claro
+# Proyecto integrador "Distribuidora Río Claro"
 
 Proyecto que integra **Odoo Community 20.0** con servicios de IA de
 Microsoft Azure para apoyar la recepción, revisión y consulta de facturas de
@@ -82,6 +82,92 @@ docs/                                  evidencias visuales del curso, sanitizada
 scripts/                               utilidades de operación
 compose.yaml                           entorno local Odoo + PostgreSQL
 ```
+
+## Prueba el sistema en vivo
+
+### Chat en la tienda en línea
+
+1. Visita <https://rioclaro.ropech.com> y abre el chat.
+2. Escribe una consulta, por ejemplo: «Quiero detergente para ropa». El sistema
+   buscará los productos registrados que coincidan con ella.
+
+![Chat de la tienda en línea: inicio de la conversación](docs/screenshots/chatweb_00.png)
+
+![Chat de la tienda en línea: consulta de productos](docs/screenshots/chatweb_01.png)
+
+![Chat de la tienda en línea: resultados de búsqueda](docs/screenshots/chatweb_02.png)
+
+### Asistente de Telegram
+
+1. Abre el [bot de Río Claro en Telegram](https://web.telegram.org/k/#@RioClaroBot).
+2. Envía un mensaje para registrar un usuario público. Este usuario solo podrá
+   consultar información no privada, igual que en el chat de la tienda.
+3. Pide recomendaciones sobre productos de limpieza.
+
+![Conversación con el bot de Telegram](docs/screenshots/telegrambot_00.png)
+
+#### Habilitar consultas sobre información interna
+
+Para permitir que el usuario consulte datos privados de la empresa:
+
+1. Inicia sesión en [Odoo](https://rioclaro.ropech.com/web/login) con el usuario
+   `admin` y la contraseña `admin`.
+
+   ![Inicio de sesión en Odoo](docs/screenshots/odoo_00.png)
+
+2. Abre el menú de la esquina superior izquierda y selecciona **Invoice Intake**.
+
+   ![Menú de Invoice Intake](docs/screenshots/odoo_01.png)
+
+3. En **Telegram Contacts**, abre el contacto correspondiente.
+
+   ![Lista de contactos de Telegram](docs/screenshots/odoo_02.png)
+
+4. Cambia el campo **Role** a **Internal user** para habilitar las consultas
+   sobre ventas y existencias. Las opciones disponibles son **Supplier**,
+   **Internal user** y **Customer**.
+
+5. Guarda los cambios.
+
+   ![Configuración del rol del contacto](docs/screenshots/odoo_03.png)
+
+6. En Telegram, prueba una consulta como «¿Cuáles son las ventas de los últimos
+   cuatro días en Distribuidor Río Claro?». Incluye siempre el nombre de la
+   empresa, ya que el sistema es multiempresa.
+
+   ![Consulta sobre ventas en Telegram](docs/screenshots/telegrambot_01.png)
+
+### Enviar facturas de proveedor por Telegram
+
+1. Envía al bot una factura como imagen o documento PDF.
+2. En Odoo, abre **Invoice Intake** desde el menú superior izquierdo y consulta
+   el registro más reciente, cuyo estado (**State**) debe ser **Received**.
+
+   ![Registro de factura recibida por Telegram](docs/screenshots/odoo_04.png)
+
+   ![Imagen de la factura recibida](docs/screenshots/odoo_05.png)
+
+3. Selecciona **Extract Invoice Data** para extraer los datos y completar el
+   formulario. Revisa la información antes de crear la factura de proveedor.
+
+   ![Datos extraídos de la factura](docs/screenshots/odoo_06.png)
+
+### Enviar facturas de proveedor por correo electrónico
+
+1. Envía un correo con la factura adjunta a la dirección configurada en Odoo.
+   Para esta prueba, se utiliza `testingropech@gmail.com`.
+
+   ![Correo electrónico con la factura adjunta](docs/screenshots/email_00.png)
+
+2. En Odoo, abre **Invoice Intake** y consulta el registro más reciente, cuyo
+   estado (**State**) debe ser **Received**.
+
+   ![Registro de factura recibida por correo electrónico](docs/screenshots/odoo_04.png)
+
+   ![PDF de la factura recibida](docs/screenshots/odoo_07.png)
+
+3. Selecciona **Extract Invoice Data** para extraer los datos. Revisa el
+   formulario antes de crear la factura de proveedor.
 
 ## Inicio rápido: Odoo local
 

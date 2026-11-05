@@ -1,14 +1,32 @@
+# Local secrets and settings
 .env
 .env.*
 !.env.example
-__pycache__/
-*.py[cod]
-.DS_Store
-odoo/odoo.conf
-guia.md
-Proyecto_Distribuidora_Rio_Claro.md
 azure/email-screening/local.settings.json
-azure/email-screening/.python_packages/
-azure/email-screening/build/
 deploy/.env
 deploy/odoo.prod.conf
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated datasets and local Azure Functions packages
+azure/email-screening/.python_packages/
+azure/email-screening/build/
+
+# Local Odoo configuration and generated data
+odoo/odoo.conf
+*.log
+
+# OS metadata
+.DS_Store
+
+# Local course notes (guia.md remains tracked in Git)
+guia.md

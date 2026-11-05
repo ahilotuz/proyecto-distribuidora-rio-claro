@@ -73,6 +73,31 @@ synthetic dataset.
 
 ## Provider workflow
 
+```mermaid
+flowchart TD
+    Caller[Odoo or a test client] --> Request[POST /api/screen-email<br/>body + hasAttachments + language]
+    Request --> Valid{Valid request?}
+    Valid -->|No| InputError[HTTP 400 or 413]
+    InputError --> Caller
+    Valid -->|Yes| Config{Configuration available?}
+    Config -->|No| ConfigError[HTTP 503]
+    ConfigError --> Caller
+    Config -->|Yes| Classifier[Azure Function]
+    Classifier --> Language[Azure AI Language<br/>custom classifier]
+    Language -->|label + confidence| Classifier
+    Classifier --> Route{Confidence and label?}
+    Route -->|Below threshold| Review[review]
+    Route -->|High-confidence not_invoice| Ignore[ignore]
+    Route -->|supplier_invoice with attachment| Inspect[inspect_attachments]
+    Route -->|supplier_invoice without attachment<br/>or unknown label| Review
+    Review --> Response[JSON: route + label + confidence]
+    Ignore --> Response
+    Inspect --> Response
+    Classifier -. service error .-> ServiceError[HTTP 502]
+    ServiceError --> Caller
+    Response --> Caller
+```
+
 Use separate Azure Logic Apps triggers/connectors for Microsoft 365 and Gmail.
 Each trigger should read the email body and attachment-presence metadata and
 call the Function's `screen-email` endpoint with:

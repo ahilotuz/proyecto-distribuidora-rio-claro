@@ -3,7 +3,7 @@
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "LANGUAGE_ENDPOINT": "https://rioclaro-language-dev.cognitiveservices.azure.com",
+    "LANGUAGE_ENDPOINT": "https://<your-language-resource>.cognitiveservices.azure.com",
     "LANGUAGE_PROJECT_NAME": "supplier-invoice-email",
     "LANGUAGE_DEPLOYMENT_NAME": "practice-screening-deployment",
     "INVOICE_CONFIDENCE_THRESHOLD": "0.90"

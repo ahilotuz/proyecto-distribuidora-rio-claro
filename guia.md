@@ -1,4 +1,4 @@
-# Receta para crear y entregar un proyecto Python
+# Guía para crear un proyecto nuevo
 
 Guía reutilizable para empezar un proyecto pequeño y llevarlo, paso a paso, a un
 flujo de trabajo profesional. Está pensada para personas que están aprendiendo.
@@ -319,7 +319,7 @@ The code was changed to use the SDK's long-running
 
 For the local integration check, sign in to Azure CLI with `az login` and use
 the resource endpoint
-`https://rioclaro-language-dev.cognitiveservices.azure.com`, project
+`https://<your-language-resource>.cognitiveservices.azure.com`, project
 `supplier-invoice-email`, deployment `practice-screening-deployment`, and
 threshold `0.90`. The Function handler was invoked locally with two holdout
 documents through `DefaultAzureCredential`; both calls reached Azure and
@@ -344,7 +344,7 @@ route.
 Azurite was started locally with its data under `/tmp/rioclaro-azurite`, and
 the Functions host was started on `127.0.0.1:7071` using Azure Functions Core
 Tools 4. The ignored `local.settings.json` points to
-`https://rioclaro-language-dev.cognitiveservices.azure.com`, project
+`https://<your-language-resource>.cognitiveservices.azure.com`, project
 `supplier-invoice-email`, deployment `practice-screening-deployment`, and
 threshold `0.90`. Azure CLI credentials authenticated the local process; no
 key or credential was added to the repository.
@@ -443,11 +443,11 @@ A final live integration check was performed with the complete stack running:
 4. Direct synthetic tests from inside the Odoo container confirmed classification responses:
    - Invoice body with attachment: `route=inspect_attachments`, `label=supplier_invoice`, confidence `1.0`.
    - Shipping update without attachment: `route=ignore`, `label=not_invoice`, confidence `1.0`.
-5. Two live unread emails were placed in `tepardo.1@gmail.com`:
+5. Two live unread emails were placed in a disposable test mailbox:
    - An invoice email (*Factura de servicios 003*) with XML and PDF attachments.
    - An unrelated non-invoice message.
 6. A manual **Fetch Now** on the configured IMAP server returned:
-   - `Fetched 2 email(s) on imap server tepardo.1@gmail.com; 2 succeeded, 0 failed.`
+   - `Fetched 2 email(s) on the configured test server; 2 succeeded, 0 failed.`
    - The non-invoice message was filtered out: `Screening excluded incoming email Message-ID ... (route=ignore, label=not_invoice)`.
    - The invoice message was created as intake record ID `5725` assigned to `Distribuidora Rio Claro` (`company_id=2`), with both attachments (`f78f8db5-c690-4410-9d94-c10a01ea5dc8.xml` and `.pdf`) stored in the filestore and rendered in the Odoo chatter.
 
@@ -811,7 +811,7 @@ arquitectura y deben documentarse antes de habilitar producción.
 - Started Odoo containers (`docker compose up -d`).
 - Ran unit tests for `rioclaro_invoice_inbox` with proper DB credentials and addon path:
   ```bash
-  docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_db --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password=rioclaroapp --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0
+  docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_db --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password="$ODOO_DB_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0
   ```
 - All 19 tests passed (0 failures, 0 errors).
 - Verified UI actions: “Create Vendor Bill” creates a draft `account.move` with copied attachments; “View Vendor Bill” opens the same bill.
@@ -968,7 +968,7 @@ To test queries you need product stock in Odoo (Inventory > Products).
 ### Milestone 2, step 1: Telegram bot and token
 
 - Branch: `feature/telegram-invoice-intake`.
-- Created the bot `rioclaro_facturas_dev_bot` with @BotFather. The token is
+- Created a development bot with @BotFather. The token is
   stored only in the ignored `.env` as `RIOCLARO_TELEGRAM_BOT_TOKEN`.
 - Added the variable to the Odoo service in `compose.yaml` and a blank entry
   to `.env.example`.
@@ -984,7 +984,7 @@ To test queries you need product stock in Odoo (Inventory > Products).
   Errors raise `TelegramError` and never include the bot token.
 - Added `tests/test_telegram_client.py` with 7 mocked tests (no network).
 - Verification: 32 add-on tests, 0 failed, 0 errors.
-- Live proof: a photo sent to `@rioclaro_facturas_dev_bot` was received by
+- Live proof: a photo sent to the development bot was received by
   `get_updates` (sender, caption "Factura de prueba") and downloaded with
   `download_file` as a real JPEG (184,670 bytes, signature `ff d8 ff e0`).
   Nothing was acknowledged, so the message stays pending for step 3.
@@ -1163,7 +1163,7 @@ verified against the live Azure deployment.
    ![Deployment complete](docs/screenshots/m4-05-openai-deployment-complete.png)
    ![Resource overview](docs/screenshots/m4-06-openai-resource-overview.png)
 6. Press **Go to Foundry portal**. The welcome page shows the endpoint
-   (`https://rioclaro-aoai-dev.openai.azure.com/`) and API key 1 (reveal with
+   (`https://<your-resource>.openai.azure.com/`) and API key 1 (reveal with
    the eye icon). These become `RIOCLARO_AOAI_ENDPOINT` and the key.
    ![Foundry welcome](docs/screenshots/m4-07-foundry-classic-welcome-endpoint.png)
 7. Open **Deployments**; a new resource has none.
@@ -1360,7 +1360,7 @@ merged by the assistant). Never print or commit secrets.
    10. **Public IP:** open `vm-rioclaro-ip`; the assignment is **Static**
        (this is the IP for the DNS A record).
        ![Public IP](docs/screenshots/m5b-13-public-ip-static.png)
-2. DNS: A record `rioclaro.ropech.com` to the VM IP.
+2. DNS: configure an A record for `<your-domain>` to the VM IP.
 3. VM hardening: Docker + Compose, `ufw` (22, 80, 443 only), `fail2ban`,
    key-only SSH (`PasswordAuthentication no`).
 
@@ -1413,10 +1413,11 @@ merged by the assistant). Never print or commit secrets.
 3. Append `RIOCLARO_TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)` to
    `deploy/.env`, then `docker compose -f compose.prod.yaml up -d --force-recreate odoo`.
 4. Register the webhook with `scripts/telegram_webhook.py` (`ACTION=set`,
-   `info` or `delete`) through `odoo shell` using `exec -T`. **Always pass
+   `info` or `delete`) through `odoo shell` using `exec -T`. For `set`, pass
+   `WEBHOOK_BASE_URL=https://<your-domain>` into the container. **Always pass
    `--db_host=odoo-db --db_user=odoo --db_password="$PW"`**, otherwise the shell
    fails with a Postgres socket error. Expect `WEBHOOK {'url':
-   'https://rioclaro.ropech.com/rioclaro/telegram/webhook', ...,
+   'https://<your-domain>/rioclaro/telegram/webhook', ...,
    'last_error_message': None}`.
 5. At the initial M6 rollout, create the Owner contact
    (`rioclaro.telegram.contact`: Telegram ID, role `internal`, company, query
@@ -1427,9 +1428,6 @@ merged by the assistant). Never print or commit secrets.
    VM database. Forged and missing secret both return 403; GET returns 405;
    Telegram shows 0 pending updates and no errors.
 
-   Expected reply to a stock question (note the literal `**`, see below):
-
-   ![Telegram stock reply](docs/screenshots/m6-02-telegram-stock-reply.png)
 7. Rollback: `ACTION=delete`, remove the secret, enable parameter
    `rioclaro_invoice_inbox.telegram_polling_enabled`.
 
@@ -1496,7 +1494,7 @@ az role assignment create --assignee-object-id $PID --assignee-principal-type Se
   --role "Cognitive Services User" --scope $LID
 # 2. App settings read by azure/email-screening/screening.py
 az functionapp config appsettings set -g $RG -n $APP --settings \
-  LANGUAGE_ENDPOINT=https://rioclaro-language-dev.cognitiveservices.azure.com \
+  LANGUAGE_ENDPOINT=https://<your-language-resource>.cognitiveservices.azure.com \
   LANGUAGE_PROJECT_NAME=supplier-invoice-email \
   LANGUAGE_DEPLOYMENT_NAME=practice-screening-deployment \
   INVOICE_CONFIDENCE_THRESHOLD=0.90
@@ -1639,14 +1637,13 @@ Verified from the Owner Telegram contact on the VM:
   Cuidado del Hogar y Superficies**, with margin **$76.00 MXN (49%)**, revenue
   **$155.00 MXN**, and cost **$79.00 MXN**.
 
-![Owner margin query for the last 30 days](docs/screenshots/m9-01-owner-margin-query.png)
 
 ## 17. Draft vendor bill feature verification
 
 - Started Odoo containers (`docker compose up -d`).
 - Ran unit tests for `rioclaro_invoice_inbox` with proper DB credentials and addon path:
   ```bash
-  docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_db --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password=rioclaroapp --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0
+  docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_db --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password="$ODOO_DB_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0
   ```
 - All 19 tests passed (0 failures, 0 errors).
 - Verified UI actions: “Create Vendor Bill” creates a draft `account.move` with copied attachments; “View Vendor Bill” opens the same bill.

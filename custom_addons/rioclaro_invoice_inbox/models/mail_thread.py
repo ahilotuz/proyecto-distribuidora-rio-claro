@@ -183,5 +183,5 @@ class MailThread(models.AbstractModel):
             for character in text
             if not unicodedata.combining(character)
         )
-        text = f" {re.sub(r'[\W_]+', ' ', text)} "
+        text = " " + re.sub(r"[\W_]+", " ", text) + " "
         return any(f" {cue} " in text for cue in _INVOICE_EMAIL_CUES)

@@ -28,441 +28,389 @@ dentro de Odoo para recibir facturas de proveedores por correo electrónico y
 WhatsApp, revisar su información y mantener trazabilidad. No se desarrollará
 una aplicación externa independiente para este flujo.
 
-### Git naming convention
+## Arquitectura y alcance
+- Odoo administra la información de proveedores, productos, inventario, compras, ventas y procesos contables.
+- La recepción de facturas por correo electrónico y Telegram se implementa como una aplicación/módulo de Odoo y utiliza los modelos y permisos estándar de Odoo.
+- El módulo personalizado no duplica los flujos estándar del ERP ni accede directamente a PostgreSQL fuera del ORM de Odoo.
+- La validación de CFDI y cualquier conexión con el SAT quedan fuera del alcance.
+- El entorno local de desarrollo utiliza Odoo Community 20.0 y PostgreSQL 16, configurados mediante Docker Compose.
 
-Branch names, pull request titles, and pull request descriptions must be in
-English, brief, and clear.
+## Filtrar correos antes de Odoo
 
-### Architecture and scope
+El proyecto utiliza tecnologías de Microsoft para identificar correos con facturas de proveedores y evitar importar mensajes que no tengan relación. Los buzones de origen incluyen Microsoft 365 y Gmail, y se permite procesar el contenido y los adjuntos mediante servicios de Azure.
 
-- Odoo is the source of truth for suppliers, products, stock, purchases, sales,
-  and accounting workflows.
-- Invoice ingestion from email and WhatsApp will be implemented as an Odoo
-  application/module and will use Odoo's standard models and permissions.
-- The custom module must not duplicate standard ERP workflows or access
-  PostgreSQL directly outside Odoo's ORM.
-- CFDI validation and any connection to Mexico's SAT are out of scope.
-- The local development stack is Odoo Community 20.0 and PostgreSQL 16,
-  configured through Docker Compose.
-- The user has created and checked a purchase and a sale in the Odoo database.
-- The user's latest report confirmed that Odoo invoice PDFs render with the
-  configured styling after setting the database parameter `report.url` to
-  `http://127.0.0.1:8069` and freeing host port 8069 from an unrelated Odoo
-  container. Río Claro is accessed from the host at
-  `http://127.0.0.1:8079`.
-- Azure AI email screening is the next planned increment. The company inboxes
-  include Microsoft 365 and Gmail, so the design must support both providers.
+La arquitectura propuesta consiste en:
+- Azure Logic App con conectores para ambos sistemas de correo.
+- Azure AI Language con clasificación personalizada de texto sobre el cuerpo del correo.
+- Revisión de adjuntos únicamente cuando el mensaje tenga alta probabilidad de ser una factura.
+- Azure AI Document Intelligence para revisar PDFs e imágenes.
+- Procesamiento independiente para archivos XML.
 
-### Next project step: filter email before Odoo
+Los correos que parezcan facturas pero no tengan adjuntos, aquellos con clasificación incierta o con adjuntos no concluyentes, deben enviarse a una carpeta de revisión. Los mensajes claramente no relacionados no deben enviarse a Odoo. Solo las facturas confirmadas deben llegar al flujo de captura en Odoo.
 
-The user wants Microsoft technologies to identify supplier invoice emails and
-avoid importing unrelated messages. The source inboxes include both Microsoft
-365 and Gmail, and Azure processing of email content and attachments is
-acceptable. The proposed architecture is an Azure Logic App with provider
-connectors for both email systems, Azure AI Language custom text classification
-of the email body, and attachment checks only for likely invoices. PDFs and
-images can be checked with Azure AI Document Intelligence; XML files need
-separate parsing. Invoice-like messages with no attachments, uncertain
-classification, or inconclusive attachments should go to a review folder.
-Clearly unrelated messages should not be sent to Odoo. Only confirmed invoices
-should reach the Odoo intake.
+### Configuración de filtrado de correos con Azure completada hasta ahora
 
-Do not treat an unvalidated confidence threshold as proof that a message is an
-invoice. Build and evaluate the classifier using sanitized examples of both
-invoice and non-invoice email bodies before enabling automatic routing.
+Los siguientes pasos se completaron correctamente en la suscripción **Azure
+for Students**.
 
-A review-first Azure Function foundation now exists under
-`azure/email-screening/`. It calls a configured Azure AI Language custom
-single-label classifier and returns only `ignore`, `review`, or
-`inspect_attachments`. The default confidence threshold is configurable but
-not validated. The foundation does not forward mail to Odoo or move/delete
-source messages.
+#### 1. Preparar ejemplos de práctica
 
-After reliable filtering, continue with the reviewed-intake-to-draft-vendor-bill
-workflow, then consider WhatsApp/Telegram after selecting their official APIs
-and credentials. The current Odoo intake does not perform invoice extraction,
-OCR, or accounting entry creation.
-
-### Cleanup status
-
-The standalone Python invoice-capture service, its dependencies, migrations,
-tests, and CI workflow have been removed from the repository. The local
-`.venv`, its caches, the stored invoice attachment, and the standalone
-`rioclarodev` PostgreSQL database and `rioclaroapp` role were deleted after the
-user confirmed removal. The ignored `.env` remains with only Odoo settings.
-Odoo's Compose containers and persistent volumes were not modified.
-The removal was merged into `main` by squash in PR #4 (commit `436bca9`); the
-local `main` branch is synchronized with `origin/main`.
-
-### First Odoo add-on increment: email inbox
-
-The user requested an Odoo-native invoice ingestion module, starting with the
-easiest channel. Email was selected because Odoo Community already supports
-incoming mail servers and aliases; WhatsApp and Telegram require separate
-external API/webhook setup. The feature branch is
-`feature/email-invoice-ingestion`.
-
-The `rioclaro_invoice_inbox` add-on adds an accounting-user menu, an intake
-record with received/in-review/rejected states, company-scoped access, and
-Odoo chatter for retaining the original incoming email and its attachments.
-Configure one Odoo incoming mail server per company inbox and set its **Create
-a New Record** model to **Supplier Invoice Email**; all mailboxes feed the same
-queue. Each intake record stores the incoming server name in **Received In**.
-Duplicate email Message-IDs resolve to the existing intake record. It does not
-yet determine whether a message is an invoice, OCR invoice details, or create
-vendor bills. README instructions explain configuring incoming IMAP servers
-in Odoo.
-
-The Compose service mounts `custom_addons/` read-only and includes it in the
-Odoo add-on path. Odoo 20 uses the `ir.access` security model and its
-`message_new` hook returns a recordset; implementation follows these current
-contracts. Python compilation and XML parsing pass. Odoo installed the add-on
-and ran its tests against a disposable PostgreSQL database; all 7 selected
-tests passed (5 add-on tests plus framework tests), including a check that
-messages from two incoming mail servers land in the same queue and retain their
-source names. The existing
-`distribuidora_rio_claro_dev` database was not used for the test run. The
-temporary test database was dropped afterward. The add-on was then installed
-into `distribuidora_rio_claro_dev` without changing its existing purchase or
-sale data. The Compose Odoo service restarted and returned HTTP 200 at
-`http://127.0.0.1:8079/web/login`. The multi-mailbox update was applied to the
-development database. A Gmail IMAP server was confirmed and fetched existing
-mail into the intake, demonstrating connectivity, but it also imported
-unrelated messages from the general-purpose inbox. There were 47 intake
-records from that test when checked. The Odoo service was temporarily stopped
-to pause polling and subsequently restarted by the user. Use a dedicated or
-filtered invoice mailbox before further live testing.
-
-The milestone was committed on `feature/email-invoice-ingestion` as
-`d5b2741` (`Add multi-mailbox invoice intake`). The branch had not been pushed
-at the time this note was updated.
-
-### Azure email screening setup completed so far
-
-The following steps have been completed successfully in the **Azure for
-Students** subscription.
-
-#### 1. Prepare practice examples
-
-The fictional Spanish dataset is in
-`azure/email-screening/data/synthetic_examples.jsonl`. It contains 50
-`supplier_invoice` and 50 `not_invoice` training examples, plus 10 holdout
-examples for each class. From `azure/email-screening/`, run:
+El conjunto de datos ficticios en español se encuentra en
+`azure/email-screening/data/synthetic_examples.jsonl`. Contiene 50 ejemplos
+`supplier_invoice` y 50 `not_invoice` para entrenamiento, además de 10
+ejemplos de prueba por clase. Desde
+`azure/email-screening/`, ejecuta:
 
 ```bash
 python3 prepare_dataset.py
 ```
 
-This validated and exported all 120 examples to
-`build/synthetic-language-dataset/` as individual UTF-8 `.txt` documents and
-`manifest.csv`. Keep the holdout files separate from training. The examples
-are synthetic and are suitable only for practicing Azure's import and
-evaluation workflow, not for proving production classifier accuracy.
+El script validó y exportó los 120 ejemplos a
+`build/synthetic-language-dataset/` como documentos `.txt` individuales en
+UTF-8 y `manifest.csv`. Mantén separados
+los archivos de prueba y los de entrenamiento. Los ejemplos son sintéticos y
+solo sirven para practicar el flujo de importación y evaluación de Azure; no
+demuestran la precisión del clasificador en producción.
 
-#### 2. Create the Azure resources
+#### 2. Crear los recursos de Azure
 
-1. Create resource group `rg-rioclaro-ai-dev`.
-2. Create the Azure **Language** resource `rioclaro-language-dev` in
+1. Crea el grupo de recursos `rg-rioclaro-ai-dev`.
+2. Crea el recurso de **Language** de Azure `rioclaro-language-dev` en
    **Canada Central**.
-3. Select **Custom text classification & custom named entity recognition** as
-   the custom feature, and choose the **Free F0** pricing tier.
-4. Set **all networks** for Language resource network access and enable its
-   **system-assigned managed identity**.
-5. Create a separate storage account named `rioclaroaiscreen02` in the same
-   resource group and **Canada Central** region. Use **StorageV2
-   (general-purpose v2)**, **Standard** performance, and **Locally redundant
-   storage (LRS)**. Select **Azure Blob Storage or Azure Data Lake Storage** as
-   the primary service, **General purpose** as the workload, and **Hot** as
-   the access tier.
+   ![Laguage Resource](docs/screenshots/2026-10-10_16-42-13.png)
 
-#### 3. Storage account settings
+3. Selecciona **Custom text classification & custom named entity recognition**
+   como característica personalizada y el nivel de precios **Free F0**.
+   ![Laguage Resource type](docs/screenshots/2026-10-10_16-45-31.png)
+4. Configura el acceso de red del recurso Language para **all networks** y
+   habilita su **system-assigned managed identity**.
+5. Crea una cuenta de almacenamiento independiente llamada
+   `rioclaroaiscreen02` en el mismo grupo de recursos y la región **Canada
+   Central**. Usa **StorageV2 (general-purpose v2)**, rendimiento **Standard**
+   y **Locally redundant storage (LRS)**. Selecciona **Azure Blob Storage or
+   Azure Data Lake Storage** como servicio principal, **General purpose** como
+   tipo de carga y **Hot** como nivel de acceso.
+   ![Storage account](docs/screenshots/2026-10-11_07-31-04.png)
+   ![Storage account](docs/screenshots/2026-10-11_07-40-21.png)
+   
+   
+#### 3. Configurar la cuenta de almacenamiento
 
-- Networking: public network access enabled for all networks; Microsoft
-  network routing; no private endpoint.
-- Security: secure transfer required; anonymous blob access disabled; storage
-  account key access enabled; minimum TLS 1.2.
-- Encryption: Microsoft-managed keys; customer-managed key support set to
-  **Blobs and files only**; infrastructure encryption disabled.
-- Blob features: hierarchical namespace, NFS v3, SFTP, cross-tenant
-  replication, versioning, change feed, point-in-time restore, and
-  version-level immutability disabled. Access tier is **Hot**.
-- Recovery: blob soft delete and container soft delete enabled with seven-day
-  retention.
-- Azure Files options left at their defaults. Tags left blank.
+- Red: acceso a la red pública habilitado para todas las redes; enrutamiento de
+  red de Microsoft; sin punto de conexión privado.
+  ![Storage account](docs/screenshots/2026-10-11_07-46-05.png)
+- Seguridad: transferencia segura obligatoria; acceso anónimo a blobs
+  deshabilitado; acceso a la clave de la cuenta de almacenamiento habilitado;
+  TLS mínimo 1.2.
+  ![Storage account](docs/screenshots/2026-10-11_07-49-47.png)
+- Cifrado: claves administradas por Microsoft; compatibilidad con claves
+  administradas por el cliente configurada en **Blobs and files only**; cifrado
+  de infraestructura deshabilitado.
+  ![Storage account](docs/screenshots/2026-10-11_07-50-59.png)
+- Características de Blob: espacio de nombres jerárquico, NFS v3, SFTP,
+  replicación entre inquilinos, control de versiones, fuente de cambios,
+  restauración a un momento dado e inmutabilidad por versión deshabilitados.
+  El nivel de acceso es **Hot**.
+  ![Storage account](docs/screenshots/2026-10-11_07-43-07.png)
+- Recuperación: eliminación temporal de blobs y contenedores habilitada con
+  retención de siete días.
+  ![Storage account](docs/screenshots/2026-10-11_07-47-53.png)
+- Se dejaron las opciones de Azure Files con sus valores predeterminados y las
+  etiquetas vacías.
+El acceso anónimo a blobs está deshabilitado. La asociación de una cuenta de
+almacenamiento con un recurso Language no se puede cambiar después; por eso,
+reserva esta cuenta para `rioclaro-language-dev`.
+  ![Storage account](docs/screenshots/2026-10-11_08-02-36.png)
+  ![Storage account](docs/screenshots/2026-10-11_08-02-54.png)
+  ![Storage account](docs/screenshots/2026-10-11_08-05-40.png)
+  ![Storage account](docs/screenshots/2026-10-11_08-05-52.png)
 
-Anonymous blob access is disabled. The storage-account association to a
-Language resource cannot be changed later, so keep this account dedicated to
-`rioclaro-language-dev`.
+#### 4. Conceder acceso y habilitar la clasificación personalizada
 
-#### 4. Grant access and enable custom classification
+1. En `rioclaroaiscreen02` → **Access Control (IAM)**, asigna el rol
+   **Storage Blob Data Contributor** a la **managed identity**
+   `rioclaro-language-dev`, con alcance limitado a esta cuenta de
+   almacenamiento.
+   ![](docs/screenshots/2026-10-11_08-08-59.png)
+   ![](docs/screenshots/2026-10-11_08-20-44.png)
+   ![](docs/screenshots/2026-10-11_08-22-04.png)
+   
+2. En `rioclaro-language-dev` → **Resource Management → Features**, habilita
+   **Custom text classification / Custom Named Entity Recognition**, selecciona
+   `rioclaroaiscreen02` y haz clic en **Apply**.
+   ![Storage account](docs/screenshots/2026-10-11_08-11-49.png)
+3. Confirma que el portal indique que la actualización se realizó correctamente,
+   que la casilla de la característica siga marcada y que no haya cambios
+   pendientes.
 
-1. On `rioclaroaiscreen02` → **Access Control (IAM)**, add the
-   **Storage Blob Data Contributor** role for the **managed identity**
-   `rioclaro-language-dev`, scoped to this storage account.
-2. On `rioclaro-language-dev` → **Resource Management → Features**, enable
-   **Custom text classification / Custom Named Entity Recognition**, select
-   `rioclaroaiscreen02`, and click **Apply**.
-3. Confirm the portal reports a successful update, the feature checkbox remains
-   checked, and there are no pending changes.
+#### 5. Configurar CORS de Blob y los permisos de usuario
 
-#### 5. Configure Blob CORS and user permissions
-
-Language Studio initially displayed a CORS warning and could not load the
-project's blobs. In `rioclaroaiscreen02` → **Settings → Resource sharing
-(CORS)** → **Blob service**, add these two rules:
+Al principio, Language Studio mostró una advertencia de CORS y no pudo cargar
+los blobs del proyecto. En `rioclaroaiscreen02` → **Settings → Resource sharing
+(CORS)** → **Blob service**, agrega estas dos reglas:
 
 | Allowed origin | Allowed methods | Allowed headers | Exposed headers | Max age |
 | --- | --- | --- | --- | --- |
 | `https://ai.azure.com` | `GET`, `PUT`, `DELETE` | `*` | Leave blank | `500` |
 | `https://language.cognitive.azure.com` | `GET`, `PUT`, `DELETE` | `*` | Leave blank | `500` |
 
-Save the rules. Also assign **Storage Blob Data Contributor** to the signed-in
-Azure user on `rioclaroaiscreen02` → **Access Control (IAM)**, scoped to **This
-resource**. The managed identity and the signed-in user are separate
-principals; both were assigned this role. Allow time for the user permission to
-propagate, then refresh Language Studio or sign in again if it still reports
-an access error. Once configured, the CORS warning disappeared and the project
-documents loaded.
+Guarda las reglas. También asigna **Storage Blob Data Contributor** al usuario
+de Azure con sesión iniciada, en `rioclaroaiscreen02` → **Access Control (IAM)**
+y con alcance **This resource**. La identidad administrada y el usuario con
+sesión iniciada son entidades distintas; a ambas se les asignó este rol. Espera
+a que se propaguen los permisos del usuario y luego actualiza Language Studio
+o vuelve a iniciar sesión si sigue apareciendo un error de acceso. Una vez
+configurado, desapareció la advertencia de CORS y se cargaron los documentos
+del proyecto.
 
-#### 6. Create the Language Studio project
+#### 6. Crear el proyecto en Language Studio
 
-In Language Studio → **Custom Text Classification** → **Create a project**:
+En Language Studio → **Custom Text Classification** → **Create a project**:
 
-1. Connect the existing Language resource `rioclaro-language-dev` and its
-   storage account `rioclaroaiscreen02`.
-2. Choose **Single label classification**.
-3. Set the project name to `supplier-invoice-email`, primary language to
-   **Spanish**, and leave **Multiple languages** disabled.
-4. Use the description `Classify supplier invoice emails for Río Claro`.
-5. Select the `invoice-email-training` blob container and choose **No, I need
-   to label my documents as part of this project**.
-6. Review the configuration and create the project.
+1. Conecta el recurso Language existente `rioclaro-language-dev` y su cuenta
+   de almacenamiento `rioclaroaiscreen02`.
+2. Elige **Single label classification**.
+3. Asigna al proyecto el nombre `supplier-invoice-email`, selecciona
+   **Spanish** como idioma principal y deja deshabilitada la opción **Multiple
+   languages**.
+4. Usa la descripción `Classify supplier invoice emails for Río Claro`.
+5. Selecciona el contenedor de blobs `invoice-email-training` y elige **No, I
+   need to label my documents as part of this project**.
+6. Revisa la configuración y crea el proyecto.
 
-#### 7. Label the documents
+#### 7. Etiquetar los documentos
 
-In the project's **Data labeling** page:
+En la página **Data labeling** del proyecto:
 
-1. Add the classes `supplier_invoice` and `not_invoice`.
-2. Label `invoice_train_001.txt` through `invoice_train_050.txt` as
-   `supplier_invoice`; label `other_train_001.txt` through
-   `other_train_050.txt` as `not_invoice`.
-3. Keep all 100 documents assigned to **Training the custom model (default)**.
-   The 20 `*_test_*.txt` holdout documents were not uploaded or labeled in this
-   project.
-4. Save the labels. The class distribution showed 50 labeled documents per
-   class and 100 training documents total.
+1. Agrega las clases `supplier_invoice` y `not_invoice`.
+2. Etiqueta los archivos desde `invoice_train_001.txt` hasta
+   `invoice_train_050.txt` como `supplier_invoice`; etiqueta desde
+   `other_train_001.txt` hasta `other_train_050.txt` como `not_invoice`.
+3. Mantén los 100 documentos asignados a **Training the custom model
+   (default)**. Los 20 documentos de prueba `*_test_*.txt` no se cargaron ni
+   etiquetaron en este proyecto.
+4. Guarda las etiquetas. La distribución mostró 50 documentos etiquetados por
+   clase y 100 documentos de entrenamiento en total.
 
-#### 8. Train and review the practice model
+#### 8. Entrenar y revisar el modelo de práctica
 
-1. Open **Training jobs → Start a training job** and choose **Train a new
-   model**. The practice model was named
-   `supplier-invoice-email-practice-01`.
-2. Select **Automatically split the test set from training data** and retain
-   the default **80% training / 20% testing** split. Start the training job.
-3. Wait for **Training succeeded**, then open the model in **Model performance
-   (Preview)**.
-4. Verify **Dataset distribution**. This run showed 40 training and 10 test
-   documents for each class (80 training and 20 test total), with zero
-   unlabelled (`None`) documents.
-5. Review **Overview** and **Confusion matrix**. This practice run reported
-   100% F1, precision, and recall, with both classes on the confusion-matrix
-   diagonal for the 20 test documents.
+1. Abre **Training jobs → Start a training job** y elige **Train a new model**.
+   El modelo de práctica se llamó `supplier-invoice-email-practice-01`.
+2. Selecciona **Automatically split the test set from training data** y
+   conserva la división predeterminada de **80% training / 20% testing**.
+   Inicia el entrenamiento.
+3. Espera a que aparezca **Training succeeded** y abre el modelo en **Model
+   performance (Preview)**.
+4. Revisa **Dataset distribution**. Esta ejecución mostró 40 documentos de
+   entrenamiento y 10 de prueba por clase (80 de entrenamiento y 20 de prueba
+   en total), sin documentos sin etiquetar (`None`).
+5. Revisa **Overview** y **Confusion matrix**. En esta práctica se reportaron
+   100% de F1, precisión y sensibilidad, con ambas clases en la diagonal de la
+   matriz de confusión para los 20 documentos de prueba.
 
-Azure also displayed guidance warnings for unbalanced classes and uneven
-class distribution, even though the run's distribution table showed 40/10
-documents per class and zero unlabelled documents. Treat the metrics as a
-successful practice exercise only: this is a small synthetic dataset, and
-these results do not establish accuracy on real supplier emails. Do not
-deploy this model or enable automatic email routing based on these results.
+Azure también mostró advertencias sobre clases desequilibradas y una
+distribución desigual, aunque la tabla de esta ejecución mostraba 40/10
+documentos por clase y ninguno sin etiqueta. Considera estas métricas
+únicamente como resultado de una práctica exitosa: el conjunto de datos
+sintéticos es pequeño y estos resultados no demuestran la precisión con correos
+reales de proveedores. No despliegues este modelo ni habilites el enrutamiento
+automático de correos con base en estos resultados.
 
-#### 9. Create a test deployment
+#### 9. Crear un despliegue de prueba
 
-In **Deploying a model**, add a new deployment with:
+En **Deploying a model**, agrega un despliegue nuevo con estos datos:
 
-- Deployment name: `practice-screening-deployment`.
-- Model: `supplier-invoice-email-practice-01`.
-- Region: **Canada Central**.
+- Nombre del despliegue: `practice-screening-deployment`.
+- Modelo: `supplier-invoice-email-practice-01`.
+- Región: **Canada Central**.
 
-The deployment list confirmed the deployment was created in Canada Central.
-Its displayed expiration date was **October 25, 2029**. A deployment makes a
-prediction endpoint available, but does not connect email or Odoo by itself.
-The F0 tier permits one deployment for this project; keep it for practice.
+La lista confirmó que el despliegue se creó en Canada Central. La fecha de
+vencimiento que mostraba era **October 25, 2029**. Un despliegue habilita un
+endpoint de predicción, pero por sí solo no conecta el correo ni Odoo. El nivel
+F0 permite un solo despliegue para este proyecto; consérvalo para practicar.
 
-#### 10. Test the deployment with holdout examples
+#### 10. Probar el despliegue con ejemplos de prueba
 
-In **Testing deployments**, select `practice-screening-deployment` and upload
-one `.txt` holdout file at a time from
-`azure/email-screening/build/synthetic-language-dataset/test/`. Compare the
-predicted class with the `label` column for that filename in
-`manifest.csv`. Do not use training files for this check.
+En **Testing deployments**, selecciona `practice-screening-deployment` y carga
+un archivo de prueba `.txt` a la vez desde
+`azure/email-screening/build/synthetic-language-dataset/test/`. Compara la
+clase predicha con el valor de la columna `label` para ese archivo en
+`manifest.csv`. No uses archivos de entrenamiento para esta comprobación.
 
-All 20 holdout predictions reportedly matched their expected labels. The two
-results directly observed during this walkthrough were:
+Según el reporte, las 20 predicciones de prueba coincidieron con sus etiquetas
+esperadas. Estos son los dos resultados observados directamente durante este
+recorrido:
 
-| File | Expected label | Predicted label | Confidence |
+| Archivo | Etiqueta esperada | Etiqueta predicha | Confianza |
 | --- | --- | --- | --- |
 | `invoice_test_010.txt` | `supplier_invoice` | `supplier_invoice` | 100% |
 | `other_test_001.txt` | `not_invoice` | `not_invoice` | 100% |
 
-The other 18 results were confirmed by the user as matches; their individual
-confidence scores were not recorded here. This is **20 of 20** correct on the
-small synthetic holdout set, not evidence of real-world accuracy.
+El usuario confirmó que los otros 18 resultados también coincidieron; sus
+niveles de confianza individuales no se registraron aquí. El resultado fue de
+**20 aciertos de 20** en el pequeño conjunto sintético de prueba, lo cual no
+demuestra precisión en condiciones reales.
 
-#### 11. Connect the local Function handler to the deployment
+#### 11. Conectar el controlador local de la Function con el despliegue
 
-The Function calls the custom classification model through the official
-`azure-ai-textanalytics` Python SDK. The initial raw REST request returned
-HTTP 400 because API version `2022-05-01` does not support the
-`CustomSingleLabelClassification` task in the general analyze-text endpoint.
-The code was changed to use the SDK's long-running
-`begin_single_label_classify` operation.
+La Function llama al modelo de clasificación personalizado mediante el SDK
+oficial de Python `azure-ai-textanalytics`. La solicitud REST inicial devolvió
+HTTP 400 porque la versión de API `2022-05-01` no admite la tarea
+`CustomSingleLabelClassification` en el endpoint general de análisis de texto.
+Se modificó el código para usar la operación de larga duración
+`begin_single_label_classify` del SDK.
 
-For the local integration check, sign in to Azure CLI with `az login` and use
-the resource endpoint
+Para la prueba de integración local, inicia sesión en Azure CLI con `az login`
+y usa el endpoint del recurso
 `https://<your-language-resource>.cognitiveservices.azure.com`, project
-`supplier-invoice-email`, deployment `practice-screening-deployment`, and
-threshold `0.90`. The Function handler was invoked locally with two holdout
-documents through `DefaultAzureCredential`; both calls reached Azure and
-returned HTTP 200:
+`supplier-invoice-email`, el despliegue `practice-screening-deployment` y el
+umbral `0.90`. El controlador de la Function se ejecutó localmente con dos
+documentos de prueba mediante `DefaultAzureCredential`; ambas llamadas
+llegaron a Azure y devolvieron HTTP 200:
 
-| File | Expected label | Function route | Confidence |
+| Archivo | Etiqueta esperada | Ruta de la Function | Confianza |
 | --- | --- | --- | --- |
 | `invoice_test_010.txt` | `supplier_invoice` | `inspect_attachments` | 100% |
 | `other_test_001.txt` | `not_invoice` | `ignore` | 100% |
 
-This tested the Python handler against the deployed Language model; it did not
-start the Azure Functions HTTP host or deploy a Function App. No email was
-read, forwarded, moved, or deleted.
+Esta prueba verificó el controlador de Python con el modelo de Language
+desplegado; no inició el host HTTP de Azure Functions ni desplegó una Function
+App. No se leyó, reenvió, movió ni eliminó ningún correo.
 
-#### 12. Run and test the local HTTP Function
+#### 12. Ejecutar y probar la Function HTTP local
 
-The first Functions host startup returned 404 because the HTTP trigger
-parameter was named `request`; the Python Functions decorator expects `req`.
-Renaming it to `req` allowed the host to register the `POST /api/screen-email`
-route.
+Al iniciar el host de Functions por primera vez, devolvió 404 porque el
+parámetro del activador HTTP se llamaba `request`; el decorador de Python para
+Functions espera `req`. Al cambiarle el nombre a `req`, el host pudo registrar
+la ruta `POST /api/screen-email`.
 
-Azurite was started locally with its data under `/tmp/rioclaro-azurite`, and
-the Functions host was started on `127.0.0.1:7071` using Azure Functions Core
-Tools 4. The ignored `local.settings.json` points to
+Azurite se inició localmente con sus datos en `/tmp/rioclaro-azurite`, y el
+host de Functions se inició en `127.0.0.1:7071` con Azure Functions Core Tools
+4. El archivo ignorado `local.settings.json` apunta a
 `https://<your-language-resource>.cognitiveservices.azure.com`, project
-`supplier-invoice-email`, deployment `practice-screening-deployment`, and
-threshold `0.90`. Azure CLI credentials authenticated the local process; no
-key or credential was added to the repository.
+`supplier-invoice-email`, el despliegue `practice-screening-deployment` y el
+umbral `0.90`. El proceso local se autenticó con las credenciales de Azure
+CLI; no se agregó ninguna clave ni credencial al repositorio.
 
-Two synthetic HTTP requests reached the local host and Azure deployment and
-returned HTTP 200:
+Dos solicitudes HTTP sintéticas llegaron al host local y al despliegue de
+Azure, y devolvieron HTTP 200:
 
-| Synthetic message | Has attachments | Result |
+| Mensaje sintético | Tiene adjuntos | Resultado |
 | --- | --- | --- |
-| Invoice-like Spanish text | Yes | `supplier_invoice`, `inspect_attachments`, confidence 100% |
-| Shipping notification | No | `not_invoice`, `ignore`, confidence 100% |
+| Texto en español parecido al de una factura | Sí | `supplier_invoice`, `inspect_attachments`, confianza de 100% |
+| Aviso de envío | No | `not_invoice`, `ignore`, confianza de 100% |
 
-The 11 automated Azure tests pass, and the dataset validator still exports all
-120 synthetic examples. The host and Azurite are local development processes;
-this did not deploy an Azure Function App or connect Odoo, Logic Apps, or a
-mailbox.
+Las 11 pruebas automatizadas de Azure pasan y el validador del conjunto de
+datos sigue exportando los 120 ejemplos sintéticos. El host y Azurite son
+procesos locales de desarrollo; esto no desplegó una Azure Function App ni la
+conectó con Odoo, Logic Apps o un buzón.
 
-#### 13. Integrate Odoo with the local screening Function
+#### 13. Integrar Odoo con la Function local de filtrado
 
-The `rioclaro_invoice_inbox` add-on now screens a message before processing an
-Odoo route for `rioclaro.invoice.intake`. Screening is disabled by default.
-When enabled, the add-on sends the plaintext body (or subject if the body is
-empty), attachment-presence metadata, and language `es` to the configured
-Function URL. It retains the intake route only when the Function returns
-`supplier_invoice` and `inspect_attachments`; other results do not create an
-intake record. Email contents are sent to the configured Azure Language
-deployment.
+El módulo `rioclaro_invoice_inbox` ahora filtra los mensajes antes de
+procesarlos en una ruta de Odoo para `rioclaro.invoice.intake`. El filtrado
+viene deshabilitado de forma predeterminada. Al habilitarlo, el módulo envía a
+la URL configurada de la Function el cuerpo en texto plano (o el asunto si el
+cuerpo está vacío), los metadatos sobre la presencia de adjuntos y el idioma
+`es`. La ruta de ingreso se conserva únicamente cuando la Function devuelve
+`supplier_invoice` e `inspect_attachments`; los demás resultados no crean un
+registro de ingreso. El contenido del correo se envía al despliegue configurado
+de Azure Language.
 
-For this local test, the Odoo system parameters are:
+Para esta prueba local, los parámetros del sistema Odoo son:
 
 - `rioclaro_invoice_inbox.screening_enabled=True`
 - `rioclaro_invoice_inbox.screening_url=http://172.21.0.1:7071/api/screen-email`
 
-The local Functions host must bind to the Compose gateway address
-`172.21.0.1`, not only `127.0.0.1`, for the Odoo container to reach it. A
-synthetic POST from inside the Odoo container returned HTTP 200. The existing
-scheduled fetchmail cron was paused before updating the add-on and remains
-paused; do not run **Fetch Now** against the existing general-purpose mailbox
-until the user has placed only the intended test messages there. Its incoming
-server itself remains active for a controlled manual test.
+El host local de Functions debe enlazarse a la dirección de la puerta de enlace
+de Compose `172.21.0.1`, no únicamente a `127.0.0.1`, para que el contenedor de
+Odoo pueda alcanzarlo. Una solicitud POST sintética desde el contenedor de
+Odoo devolvió HTTP 200. El proceso cron existente de fetchmail se pausó antes
+de actualizar el módulo y sigue pausado; no ejecutes **Fetch Now** contra el
+buzón de uso general hasta que el usuario haya dejado ahí únicamente los
+mensajes de prueba previstos. El servidor entrante sigue activo para una prueba
+manual controlada.
 
-The add-on upgrade and all 10 Odoo module tests passed. A direct
-`message_process` integration check then sent two synthetic messages through
-Odoo, the local Function, and the Azure deployment:
+La actualización del módulo y sus 10 pruebas pasaron. Después, una prueba de
+integración directa con `message_process` envió dos mensajes sintéticos por
+Odoo, la Function local y el despliegue de Azure:
 
-| Synthetic message | Result |
+| Mensaje sintético | Resultado |
 | --- | --- |
-| Invoice-like Spanish body with a synthetic PDF attachment | Created one temporary intake record; attachment retained |
-| Shipping notification without attachment | Excluded from the invoice-intake route; no intake record |
+| Cuerpo en español parecido al de una factura, con un PDF sintético adjunto | Se creó un registro de ingreso temporal y se conservó el adjunto |
+| Aviso de envío sin adjunto | Se excluyó de la ruta de ingreso de facturas; no se creó ningún registro |
 
-The temporary records were rolled back, leaving the intake record count
-unchanged. This confirms email-body screening plus attachment-presence
-handling only; it does **not** inspect PDF contents or confirm that an
-attachment is a valid invoice. Classifier errors fail closed, but Odoo's
-fetchmail path may still mark a failed message as handled; resend a message
-after correcting a screening outage.
+Los registros temporales se revirtieron y el número de registros de ingreso no
+cambió. Esto solo confirma el filtrado del cuerpo del correo y el manejo de la
+presencia de adjuntos; **no** inspecciona el contenido de los PDF ni confirma
+que un adjunto sea una factura válida. Si el clasificador falla, se rechaza el
+mensaje de forma segura, pero el proceso fetchmail de Odoo todavía podría
+marcarlo como atendido; después de corregir una interrupción del filtrado, vuelve
+a enviar el mensaje.
 
-The user confirmed that only the two intended test messages were unread. One
-manual fetch of the existing incoming-mail server reported **2 fetched, 2
-succeeded, 0 failed**. Odoo created one new intake record with an attachment;
-the unrelated message was excluded by the classifier and did not create an
-intake. No email body, sender, or attachment content was copied into this
-guide. The Functions host was stopped after the test, and the scheduled
-fetchmail cron remains paused. Start the Function and verify it is reachable
-from Odoo before any later manual fetch. If screening fails, Odoo's fetchmail
-path can still mark that message as handled.
+El usuario confirmó que solo los dos mensajes de prueba previstos estaban sin
+leer. Una consulta manual al servidor de correo entrante existente reportó
+**2 recuperados, 2 exitosos y 0 fallidos**. Odoo creó un registro de ingreso
+nuevo con un adjunto; el clasificador excluyó el mensaje ajeno y no creó un
+registro para este. No se copió en esta guía el cuerpo del correo, el remitente
+ni el contenido de los adjuntos. El host de Functions se detuvo al terminar la
+prueba y el proceso cron de fetchmail sigue pausado. Antes de cualquier otra
+consulta manual, inicia la Function y verifica que Odoo pueda alcanzarla. Si el
+filtrado falla, el proceso fetchmail de Odoo todavía podría marcar el mensaje
+como atendido.
 
-This live check establishes only how these two messages were classified. The
-Function screens email text and attachment presence; it does **not** inspect
-the attachment or confirm it is a valid invoice. Do not generalize these two
-results into a classifier accuracy claim.
+Esta prueba en vivo solo establece cómo se clasificaron estos dos mensajes.
+La Function filtra el texto del correo y detecta si hay adjuntos; **no** los
+inspecciona ni confirma que sean facturas válidas. No generalices estos dos
+resultados como evidencia de la precisión del clasificador.
 
-#### 14. Fix intake visibility across companies
+#### 14. Corregir la visibilidad de ingresos entre compañías
 
-The user could not see the newly fetched invoice in the intake list. Database
-inspection confirmed the record existed, but Odoo had assigned it to the
-default processing company `My Company (San Francisco)` (company ID 1), while
-the Odoo UI was showing `Distribuidora Rio Claro` (company ID 2). The add-on's
-access domain filters records to the user's allowed companies.
+El usuario no podía ver en la lista de ingresos la factura que se acababa de
+recuperar. Una revisión de la base de datos confirmó que el registro existía,
+pero Odoo lo había asignado a la compañía predeterminada de procesamiento
+`My Company (San Francisco)` (ID de compañía 1), mientras que la interfaz de
+Odoo mostraba `Distribuidora Rio Claro` (ID de compañía 2). El dominio de
+acceso del módulo filtra los registros según las compañías permitidas para el
+usuario.
 
-The existing test intake `Factura de servicios 002` was reassigned to
-`Distribuidora Rio Claro`; refresh the intake list to see it. The add-on now
-supports `rioclaro_invoice_inbox.company_id` as the explicit company ID for
-incoming invoice records, falling back to the processing user's company only
-when the parameter is unset. It is configured in this local database as
-`2` (`Distribuidora Rio Claro`), and the add-on's 11 tests pass. The setting
-applies to all mailboxes until per-mailbox company mapping is implemented.
-The scheduled fetchmail cron remains paused.
+El registro de prueba existente `Factura de servicios 002` se reasignó a
+`Distribuidora Rio Claro`; actualiza la lista de ingresos para verlo. El módulo
+ahora admite `rioclaro_invoice_inbox.company_id` como ID explícito de la
+compañía para los ingresos de facturas y solo usa la compañía del usuario que
+procesa los mensajes cuando el parámetro no está configurado. En esta base
+local está configurado como `2` (`Distribuidora Rio Claro`) y pasaron las 11
+pruebas del módulo. La configuración se aplica a todos los buzones hasta que
+se implemente una asignación de compañía por buzón. El proceso cron de
+fetchmail sigue pausado.
 
-#### 15. Live end-to-end integration test (email fetching and screening)
+#### 15. Prueba de integración completa en vivo (recepción y filtrado de correos)
 
-A final live integration check was performed with the complete stack running:
-1. Docker Compose services (`odoo-db` and `odoo`) were verified healthy and serving HTTP traffic at `http://127.0.0.1:8079`.
-2. Local Azurite storage emulator was running on `127.0.0.1`.
-3. Local Azure Functions host was started on the Docker bridge gateway (`172.21.0.1:7071`) connected to Azure AI Language deployment `practice-screening-deployment`.
-4. Direct synthetic tests from inside the Odoo container confirmed classification responses:
-   - Invoice body with attachment: `route=inspect_attachments`, `label=supplier_invoice`, confidence `1.0`.
-   - Shipping update without attachment: `route=ignore`, `label=not_invoice`, confidence `1.0`.
-5. Two live unread emails were placed in a disposable test mailbox:
-   - An invoice email (*Factura de servicios 003*) with XML and PDF attachments.
-   - An unrelated non-invoice message.
-6. A manual **Fetch Now** on the configured IMAP server returned:
+Se realizó una última prueba de integración en vivo con toda la pila en
+ejecución:
+1. Se comprobó que los servicios de Docker Compose (`odoo-db` y `odoo`) estaban
+   saludables y atendían solicitudes HTTP en `http://127.0.0.1:8079`.
+2. El emulador de almacenamiento local Azurite estaba activo en `127.0.0.1`.
+3. El host local de Azure Functions se inició en la puerta de enlace de Docker
+   (`172.21.0.1:7071`) y se conectó al despliegue de Azure AI Language
+   `practice-screening-deployment`.
+4. Las pruebas sintéticas directas desde el contenedor de Odoo confirmaron
+   estas respuestas de clasificación:
+   - Cuerpo de factura con adjunto: `route=inspect_attachments`,
+     `label=supplier_invoice`, confianza `1.0`.
+   - Aviso de envío sin adjunto: `route=ignore`, `label=not_invoice`,
+     confianza `1.0`.
+5. Se colocaron dos correos nuevos sin leer en un buzón desechable de prueba:
+   - Un correo de factura (*Factura de servicios 003*) con adjuntos XML y PDF.
+   - Un mensaje ajeno que no era una factura.
+6. La consulta manual **Fetch Now** en el servidor IMAP configurado devolvió:
    - `Fetched 2 email(s) on the configured test server; 2 succeeded, 0 failed.`
-   - The non-invoice message was filtered out: `Screening excluded incoming email Message-ID ... (route=ignore, label=not_invoice)`.
-   - The invoice message was created as intake record ID `5725` assigned to `Distribuidora Rio Claro` (`company_id=2`), with both attachments (`f78f8db5-c690-4410-9d94-c10a01ea5dc8.xml` and `.pdf`) stored in the filestore and rendered in the Odoo chatter.
-
-#### 16. Commit screening milestone, publish pull request, and merge into main
-
-All changes corresponding to the Azure screening integration, multi-company intake routing, synthetic datasets, and unit test suites were staged and committed following project standards:
-
-- Commit on feature branch: `d07ef5d` (`Add Azure email screening and multi-company invoice intake routing`).
-- Staged files: `.env.example`, `.gitignore`, `README.md`, `compose.yaml`, `AGENTS.md`, `azure/email-screening/`, and `custom_addons/rioclaro_invoice_inbox/`.
-- Ignored files remained properly protected: local `.env`, `odoo.conf`, `azure/email-screening/local.settings.json`, synthetic datasets build directory, and `guia.md`.
-- Pull Request #5 was opened on GitHub and merged into `main` via Squash and Merge.
-- Squash merge commit on `main`: `d5b1161` (`Add Azure email screening and multi-company invoice intake routing (#5)`).
-- Local synchronization: switched to `main`, updated to `origin/main` (`git reset --hard origin/main`), and deleted the local feature branch `feature/email-invoice-ingestion`. Local `main` is completely clean and synchronized with `origin/main`.
-
-**Último paso completado:** se fusionó el PR #5 en `main` mediante Squash and Merge (commit `d5b1161`), se sincronizó la rama local `main` con `origin/main` y se eliminó la rama local de funcionalidad; el working tree se encuentra limpio. **Siguiente paso:** crear una nueva rama de funcionalidad (`feature/...`) para el siguiente incremento del Blueprint: integración con Azure AI Document Intelligence (`prebuilt-invoice`) y creación del borrador de factura de proveedor (`account.move`) en Odoo.
+   - Se filtró el mensaje que no era factura: `Screening excluded incoming
+     email Message-ID ... (route=ignore, label=not_invoice)`.
+   - El mensaje de factura se creó como registro de ingreso con ID `5725`,
+     asignado a `Distribuidora Rio Claro` (`company_id=2`). Ambos adjuntos
+     (`f78f8db5-c690-4410-9d94-c10a01ea5dc8.xml` y `.pdf`) se guardaron en el
+     filestore y aparecieron en el chatter de Odoo.
 
 ## Deuda técnica
 
@@ -806,43 +754,21 @@ arquitectura y deben documentarse antes de habilitar producción.
 - [Azure: inicio de sesión de GitHub Actions con OpenID Connect](https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect)
 - [Docker: buenas prácticas para construir imágenes](https://docs.docker.com/build/building/best-practices/)
 
-## 17. Draft vendor bill feature verification
+## 17. Verificación de la función de facturas de proveedor en borrador
 
-- Started Odoo containers (`docker compose up -d`).
-- Ran unit tests for `rioclaro_invoice_inbox` with proper DB credentials and addon path:
+- Se iniciaron los contenedores de Odoo (`docker compose up -d`).
+- Se ejecutaron las pruebas unitarias de `rioclaro_invoice_inbox` con las
+  credenciales correctas de la base de datos y la ruta de módulos:
   ```bash
   docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_db --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password="$ODOO_DB_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0
   ```
-- All 19 tests passed (0 failures, 0 errors).
-- Verified UI actions: “Create Vendor Bill” creates a draft `account.move` with copied attachments; “View Vendor Bill” opens the same bill.
-- **Último paso completado:** tests verified; ready to push the `feature/invoice-extraction-draft-bill` branch and open a Pull Request.
-
-## 18. Blueprint milestone progress
-
-**LAST_COMPLETED_STEP:** `M3-STEP-05` — M1 (PR #7) and M2 (PR #8) merged; Telegram contact ACL, scoped read-only queries, Azure OpenAI selection, and text/voice flows implemented and tested on `feature/telegram-acl-queries`. Milestone 3 closeout remains pending because the live stock query for a specific product is unresolved.
-
-### Milestone 1, step 1: Document Intelligence client
-
-- Created Azure resource `rioclaro-docintel-dev` in `rg-rioclaro-ai-dev`,
-  region Canada Central, Free F0 tier.
-- Connected Document Intelligence Studio to the resource and successfully
-  ran its built-in invoice sample using the `prebuilt-invoice` model.
-- Implemented a typed client that submits PDF, JPEG, and PNG bytes to the
-  `prebuilt-invoice` REST API, polls for completion, and parses invoice fields,
-  confidence scores, and line items.
-- Added `VendorName` parsing separately from `VendorTaxId`, based on the
-  successful Studio sample output.
-- The client rejects unsupported document types and operation URLs outside the
-  configured Azure host. Failures and timeouts raise explicit errors.
-- Verification: all 20 Odoo add-on tests passed with 0 failures and 0 errors.
-  A live request from the Odoo container to Azure also succeeded with the
-  public invoice sample: invoice `INV-100`, date `2019-11-15`, subtotal
-  `100.0`, tax `10.0`, total `110.0`, and one extracted line item.
-- Extraction is not yet connected to incoming Odoo attachments, and its
-  results are not yet saved on intake records.
-- Extraction will be triggered by a reviewer button after the email is saved,
-  so Azure failures do not prevent the original email and attachment from
-  being retained.
+- Pasaron las 19 pruebas (0 fallas, 0 errores).
+- Se verificaron las acciones de la interfaz: **Create Vendor Bill** crea una
+  factura `account.move` en borrador con copias de los archivos adjuntos;
+  **View Vendor Bill** abre esa misma factura.
+- **Último paso completado:** se verificaron las pruebas; la rama
+  `feature/invoice-extraction-draft-bill` está lista para publicarse y abrir un
+  pull request.
 
 #### Portal walkthrough: create Document Intelligence (verified)
 
@@ -894,12 +820,13 @@ arquitectura y deben documentarse antes de habilitar producción.
    client.
    ![Analysis result](docs/screenshots/m1-15-docintel-invoice-result-fields.png)
 
-### Milestone 1, step 2: Review status
+### Hito 1, paso 2: estado de revisión
 
-- Added an extraction status to intake records with pending, extracted, and
-  error states. The status is visible as read-only in the intake form.
-- Verification: the add-on updated successfully in the disposable `test_db`;
-  all 20 tests passed with 0 failures and 0 errors.
+- Se agregó a los registros de ingreso un estado de extracción: pendiente,
+  extraído o con error. El estado se muestra como solo lectura en el formulario
+  de ingreso.
+- Verificación: el módulo se actualizó correctamente en la base desechable
+  `test_db`; pasaron las 20 pruebas, con 0 fallas y 0 errores.
 
 ### Milestone 1, steps 3-6: Extraction action, lines, and bill
 
@@ -930,11 +857,6 @@ arquitectura y deben documentarse antes de habilitar producción.
   **Extract Invoice Data** button filled the invoice fields from Azure.
 - Updated `README.md` with the extraction workflow and env variables.
 
-### Milestone 1 completion marker
-
-**M1-DONE:** Milestone 1 was merged to `main` via PR #7 (Azure extraction and draft vendor bills).
-
-![PR #7 squash and merge](docs/screenshots/m1-16-pr7-squash-merge.png)
 
 #### Odoo incoming mail server (IMAP) and intake views (verified)
 
@@ -953,7 +875,7 @@ To test queries you need product stock in Odoo (Inventory > Products).
 
 **LAST_COMPLETED_STEP (M1 record):** `M1-STEP-07`
 
-### Milestone 2 decision: Telegram instead of WhatsApp
+### Milestone 2 decision: implementing Telegram 
 
 - Decision (user): Milestone 2 now implements **Telegram** invoice intake
   because it is easier to set up and test. **WhatsApp is deferred** to a later
@@ -1043,44 +965,8 @@ the sender has a Telegram contact with permissions, see Milestone 3.)
   sample photo; 1,113.07 and an RFC for the Mexican test PDF).
 - Updated `README.md` with the Telegram setup (token, allowlist, polling flag).
 
-**LAST_COMPLETED_STEP (M2 record):** `M2-STEP-05`
 
-**M2-DONE:** Milestone 2 (Telegram intake) was merged to `main` via PR #8.
-WhatsApp remains deferred.
-
-**Next step, pending confirmation:** see the Milestone 3 design below.
-
-### Milestone 3 design (approved decisions)
-
-- Scope now: an ACL plus read-only assisted queries over Telegram text and
-  voice. Quotation requests and customer-invoice issuing are a later
-  increment because they write data. Supplier invoice submission (Milestone 2)
-  is gated by the same ACL.
-- No Azure OpenAI deployment exists yet; the user will create one later. The
-  first step is the ACL, which needs no Azure.
-- ACL model: a Telegram contact links a numeric Telegram ID to one role
-  (`supplier`, `internal`, `customer`), optionally an Odoo partner, an active
-  flag, and per-contact permissions: `query_inventory`, `query_purchases`,
-  `query_sales`, `query_billing`, `check_order_status`, `request_quotation`,
-  `submit_vendor_invoice`, `issue_customer_invoice`. Roles give default
-  permissions that can be adjusted. It replaces the
-  `telegram_allowed_user_ids` parameter (the owner's ID becomes an internal
-  contact).
-- Security rules: identify by numeric Telegram ID only; private chats only;
-  contacts created by an administrator only; deny by default; permission and
-  data scope (supplier/customer = own partner, internal = company) are
-  enforced in Odoo code, never in the prompt; the model cannot pass partner or
-  domain parameters; tools return a fixed list of fields; OCR/invoice text is
-  never sent to the chat model; only authorized rows are sent to Azure OpenAI;
-  every request is logged (who, tool, allowed/denied); rate limit per
-  contact; minimal service user with explicit domains instead of full `sudo`.
-  Later, public published-product/website queries were opened to all active
-  Telegram contacts; private data remains permission-gated.
-- Steps: (1) ACL model and permissions, (2) read-only query tools without AI,
-  (3) Azure OpenAI tool-picker, (4) Telegram text wiring with log,
-  (5) voice with Azure AI Speech, (6) docs and PR.
-
-### Milestone 3, step 1: Telegram contact ACL
+### Telegram contact ACL
 
 - Branch: `feature/telegram-acl-queries`.
 - Added model `rioclaro.telegram.contact` (numeric Telegram ID, role
@@ -1187,63 +1073,72 @@ Under **Keys and endpoint** copy KEY 1 and the region (`canadacentral`) for
 the Speech settings in `.env`.
 ![Speech keys](docs/screenshots/m4-13-speech-keys-endpoint.png)
 
-### Milestone 3, step 4: Telegram text queries, audit, and rate limit
+### Hito 3, paso 4: consultas de texto, auditoría y límite de frecuencia en Telegram
 
-- Telegram parser now accepts plain text only from private chats; group-chat
-  messages are ignored. Existing invoice-file intake remains supported.
-- Polling routes authorized contacts through
-`rioclaro.assisted.query.ai.answer`. Unknown and inactive senders use only
-the public-only `answer_public` path for text questions; private operations
-remain denied.
-- Added admin-only `rioclaro.assisted.query.audit` model and menu
-  **Invoice Intake → Assisted Query Audit**. It stores sender ID, contact,
-  company, selected tool, outcome, Telegram message ID, and timestamp; it
-  does not store the question, answer, or invoice text.
-- Rate limit: 5 requests per Telegram user per rolling 5-minute window. Audited
-  duplicate Telegram message IDs are not processed twice.
-- Replies explicitly cover denied access, invalid questions, rate limit, and
-  unavailable AI. Query replies are capped at Telegram's safe message length.
-- Tightened inventory search so it returns storable products matching the
-  requested name or internal reference, rather than unrelated stock items.
-- Updated the README and added tests for private-text parsing, group filtering,
-  successful query/audit, unauthorized sender, rate limiting, and duplicate
-  update handling. 81 add-on tests passed (0 failures, 0 errors).
-- Upgraded the dev database and restarted Odoo; the web login returned HTTP
-  303 after restart.
-- User verified end-to-end in the dev bot: the private text question received
-  a reply and its audit row appeared in Odoo.
+- El analizador de Telegram ahora acepta texto sin formato solo en chats
+  privados; ignora los mensajes de grupos. Se conserva el ingreso existente de
+  archivos de factura.
+- La consulta periódica envía los contactos autorizados a
+  `rioclaro.assisted.query.ai.answer`. Los remitentes desconocidos e inactivos
+  solo pueden usar `answer_public` para preguntas de texto; las operaciones
+  privadas siguen denegadas.
+- Se agregó el modelo `rioclaro.assisted.query.audit` y el menú
+  **Invoice Intake → Assisted Query Audit**, disponibles solo para
+  administradores. Guarda el ID del remitente, el contacto, la compañía, la
+  herramienta seleccionada, el resultado, el ID del mensaje de Telegram y la
+  fecha y hora; no guarda la pregunta, la respuesta ni el texto de la factura.
+- Límite de frecuencia: 5 solicitudes por usuario de Telegram en una ventana
+  móvil de 5 minutos. Los ID de mensajes duplicados que ya están registrados
+  no se procesan de nuevo.
+- Las respuestas indican explícitamente si se denegó el acceso, la pregunta no
+  es válida, se alcanzó el límite de frecuencia o la IA no está disponible. Se
+  limita su longitud al máximo seguro de Telegram.
+- Se ajustó la búsqueda de inventario para devolver productos almacenables que
+  coincidan con el nombre solicitado o la referencia interna, en lugar de
+  artículos de inventario no relacionados.
+- Se actualizó el README y se agregaron pruebas para el análisis de texto en
+  chats privados, el filtrado de grupos, las consultas y auditorías exitosas,
+  remitentes no autorizados, límites de frecuencia y manejo de actualizaciones
+  duplicadas. Pasaron 81 pruebas del módulo (0 fallas y 0 errores).
+- Se actualizó la base de desarrollo y se reinició Odoo; después del reinicio,
+  el inicio de sesión web devolvió HTTP 303.
+- El usuario verificó el flujo completo en el bot de desarrollo: recibió una
+  respuesta a una pregunta de texto en un chat privado y el registro de
+  auditoría correspondiente apareció en Odoo.
 
-**LAST_COMPLETED_STEP:** `M3-STEP-04` — Telegram text-query flow implemented,
-tested, activated in the dev database, and verified live by the user.
+**ÚLTIMO PASO COMPLETADO:** `M3-STEP-04` — flujo de consultas de texto en
+Telegram implementado, probado, activado en la base de desarrollo y verificado
+en vivo por el usuario.
 
-This step was verified live by the user; see the completed voice-query step
-below.
+El usuario verificó este paso en vivo; consulta abajo el paso completado de
+consultas por voz.
 
-### Milestone 3, step 5: voice notes and spoken replies (complete)
+### Hito 3, paso 5: notas de voz y respuestas habladas (completado)
 
-- Added `models/speech_client.py` with Azure AI Speech REST calls for Spanish
-  (Mexico) OGG/Opus transcription and MP3 synthesis.
-- Telegram recognizes private voice notes, enforces a 60-second maximum,
-  transcribes them, sends the transcription through the existing ACL-scoped
-  query tools, and sends the answer as MP3 voice. If synthesis or audio
-  delivery fails, it falls back to text.
-- Authorized voice queries share the per-user 5 requests / 5 minutes limit and are
-  marked as voice in the admin audit view. Neither audio nor transcript is
-  stored in the audit record.
-- Speech settings are passed into the Odoo container through Compose.
-- Added mocked Speech REST, Telegram voice parsing/upload, voice-query,
-  transcription-failure, and overlength tests. 89 add-on tests passed (0
-  failures, 0 errors).
-- Upgraded the dev database and restarted Odoo with the Speech configuration;
-  the web login returned HTTP 303. A live Azure Speech synthesis request from
-  the Odoo container succeeded.
-- User verified the complete Telegram voice flow: a private voice note
-  received a spoken reply, and the audit row showed **Input Type = Voice** and
-  **Outcome = Allowed**.
+- Se agregó `models/speech_client.py` con solicitudes REST a Azure AI Speech
+  para transcribir audio OGG/Opus en español de México y sintetizar audio MP3.
+- Telegram reconoce las notas de voz en chats privados, limita su duración a
+  60 segundos, las transcribe, envía la transcripción a las herramientas de
+  consulta existentes con alcance ACL y devuelve la respuesta como audio MP3.
+  Si falla la síntesis o el envío del audio, responde con texto.
+- Las consultas de voz autorizadas comparten el límite de 5 solicitudes por
+  usuario cada 5 minutos y se identifican como consultas de voz en la vista de
+  auditoría administrativa. El registro de auditoría no guarda el audio ni la
+  transcripción.
+- La configuración de Speech se pasa al contenedor de Odoo mediante Compose.
+- Se agregaron pruebas simuladas para REST de Speech, análisis y carga de voz
+  de Telegram, consultas por voz, fallas de transcripción y duración excesiva.
+  Pasaron 89 pruebas del módulo (0 fallas y 0 errores).
+- Se actualizó la base de desarrollo y se reinició Odoo con la configuración de
+  Speech; el inicio de sesión web devolvió HTTP 303. Funcionó una solicitud en
+  vivo de síntesis de Azure Speech desde el contenedor de Odoo.
+- El usuario verificó el flujo completo de voz en Telegram: una nota de voz en
+  un chat privado recibió una respuesta hablada y la fila de auditoría mostró
+  **Input Type = Voice** y **Outcome = Allowed**.
 
-**LAST_COMPLETED_STEP:** `M3-STEP-05` — voice transcription, scoped query,
-spoken response, and audit flow implemented, tested, activated, and verified
-live by the user.
+**ÚLTIMO PASO COMPLETADO:** `M3-STEP-05` — flujo de transcripción de voz,
+consulta con alcance limitado, respuesta hablada y auditoría implementado,
+probado, activado y verificado en vivo por el usuario.
 
 ### Milestone 3, stock-query regression follow-up
 
@@ -1312,10 +1207,6 @@ merged by the assistant). Never print or commit secrets.
 > Supersedes the "still unresolved" stock-query note above: the language bug
 > behind it was fixed in M6 (see below) and verified live.
 
-### M5: bounded orchestrator, grounding and prompt-injection safety (PR #15, merged)
-
-- Tool calls are bounded, answers are grounded in tool output, and untrusted
-  text cannot change tool arguments or permissions.
 
 ### M5b: production on an Azure VM with HTTPS (PR #16, merged)
 
@@ -1387,141 +1278,156 @@ merged by the assistant). Never print or commit secrets.
    Odoo served over HTTPS at the real domain:
    ![Odoo over HTTPS](docs/screenshots/m5b-17-odoo-https.png)
 
-### M6: Telegram webhook (PR #17, merged)
+### M6: Telegram webhook
 
-![PR #17 merged](docs/screenshots/m6-01-pr17-merged.png)
+- `POST /rioclaro/telegram/webhook`: el encabezado secreto
+  `X-Telegram-Bot-Api-Secret-Token` se compara con
+  `RIOCLARO_TELEGRAM_WEBHOOK_SECRET` mediante `hmac.compare_digest` (403 si
+  falta o es incorrecto; 400 si está mal formado o supera 256 KB). Responde
+  rápidamente con 200 y coloca las solicitudes en la cola idempotente
+  `rioclaro.telegram.update`, que procesa una tarea cron cada minuto.
+- La consulta periódica se omite automáticamente cuando se configura el
+  secreto del webhook. Solo un modo puede controlar el token del bot; mantén
+  **detenida** la pila local mientras la VM use el webhook.
+- Error detectado localmente: las llamadas en segundo plano no tienen un
+  idioma, así que la búsqueda por nombre de producto solo encontraba nombres
+  en inglés. Se corrigió con `QUERY_LANG="es_MX"` (solo se aplica si ese idioma
+  está instalado y activo).
+- La prueba local requiere `--db-filter=^<dev db>$`; de lo contrario, la ruta
+  devuelve 404.
 
-- `POST /rioclaro/telegram/webhook`: secret header
-  `X-Telegram-Bot-Api-Secret-Token` compared with `hmac.compare_digest`
-  against `RIOCLARO_TELEGRAM_WEBHOOK_SECRET` (403 if wrong or missing, 400 if
-  malformed or over 256 KB), fast 200, idempotent queue
-  `rioclaro.telegram.update` processed by a one-minute cron.
-- Polling is skipped automatically when the webhook secret is set. Only one
-  mode may own the bot token; keep the local stack **stopped** while the VM
-  uses the webhook.
-- Bug found locally: background callers have no language, so product-name
-  search matched only English names. Fixed with `QUERY_LANG="es_MX"` (applied
-  only if that language is installed and active).
-- Local test needs `--db-filter=^<dev db>$` or the route returns 404.
+### Despliegue de M6 en la VM (verificado)
 
-### M6 deployment to the VM (verified)
-
-1. `cd ~/app && git pull`, then upgrade the module (needs the DB flags):
+1. Ejecuta `cd ~/app && git pull` y después actualiza el módulo (se requieren
+   los parámetros de la base de datos):
    `docker compose -f compose.prod.yaml run --rm --no-deps -T odoo odoo -c /etc/odoo/odoo.conf -d rioclaro -u rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password="$PW" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0`
-2. Copy the `RIOCLARO_*` keys from the local `.env` to `deploy/.env` by piping
-   over SSH (never paste them in chat). `chmod 600 .env`.
-3. Append `RIOCLARO_TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)` to
-   `deploy/.env`, then `docker compose -f compose.prod.yaml up -d --force-recreate odoo`.
-4. Register the webhook with `scripts/telegram_webhook.py` (`ACTION=set`,
-   `info` or `delete`) through `odoo shell` using `exec -T`. For `set`, pass
-   `WEBHOOK_BASE_URL=https://<your-domain>` into the container. **Always pass
-   `--db_host=odoo-db --db_user=odoo --db_password="$PW"`**, otherwise the shell
-   fails with a Postgres socket error. Expect `WEBHOOK {'url':
-   'https://<your-domain>/rioclaro/telegram/webhook', ...,
+2. Copia las claves `RIOCLARO_*` del `.env` local a `deploy/.env` mediante una
+   tubería por SSH (nunca las pegues en el chat). Ejecuta `chmod 600 .env`.
+3. Agrega `RIOCLARO_TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 32)` a
+   `deploy/.env` y luego ejecuta
+   `docker compose -f compose.prod.yaml up -d --force-recreate odoo`.
+4. Registra el webhook con `scripts/telegram_webhook.py` (`ACTION=set`,
+   `info` o `delete`) mediante `odoo shell` con `exec -T`. Para `set`, pasa
+   `WEBHOOK_BASE_URL=https://<your-domain>` al contenedor. **Incluye siempre
+   `--db_host=odoo-db --db_user=odoo --db_password="$PW"`**; si no, el shell
+   falla con un error de socket de Postgres. La respuesta esperada es
+   `WEBHOOK {'url': 'https://<your-domain>/rioclaro/telegram/webhook', ...,
    'last_error_message': None}`.
-5. At the initial M6 rollout, create the Owner contact
-   (`rioclaro.telegram.contact`: Telegram ID, role `internal`, company, query
-   permissions) from an `odoo shell` script or the Odoo UI. The onboarding
-   behavior described in section 21 supersedes the original no-contact public
-   text flow.
-6. Test from Telegram: a stock question returned the correct reply from the
-   VM database. Forged and missing secret both return 403; GET returns 405;
-   Telegram shows 0 pending updates and no errors.
+5. Durante el despliegue inicial de M6, crea el contacto Owner
+   (`rioclaro.telegram.contact`: ID de Telegram, rol `internal`, compañía y
+   permisos de consulta) mediante un script de `odoo shell` o la interfaz de
+   Odoo. El proceso de bienvenida descrito en la sección 21 reemplaza el flujo
+   público original, que no requería contacto.
+6. Prueba desde Telegram: una pregunta de inventario recibió la respuesta
+   correcta desde la base de datos de la VM. Los secretos falsificados o
+   faltantes devuelven 403; GET devuelve 405; Telegram muestra 0
+   actualizaciones pendientes y ningún error.
 
-7. Rollback: `ACTION=delete`, remove the secret, enable parameter
-   `rioclaro_invoice_inbox.telegram_polling_enabled`.
+7. Para revertir: usa `ACTION=delete`, elimina el secreto y habilita el
+   parámetro `rioclaro_invoice_inbox.telegram_polling_enabled`.
 
-### Behaviours worth knowing
+### Comportamientos importantes
 
-- Rate limit: configurable in **Settings > Río Claro Chatbot**. Defaults to 5
-  queries per Telegram user per 5 minutes. Values below 1 are treated as 1.
-  Rate-limited attempts are audited and count toward the window.
-- Telegram answers are plain text. Markdown emphasis and code ticks are
-  removed, and list markers are normalised to `•`.
-- Tools show only the contact's own company; a contact in another company gets
-  "No encontré resultados".
+- Límite de frecuencia: se configura en **Settings > Río Claro Chatbot**.
+  De forma predeterminada permite 5 consultas por usuario de Telegram cada
+  5 minutos. Los valores menores que 1 se consideran como 1. Los intentos
+  limitados se registran en la auditoría y cuentan para la ventana.
+- Las respuestas de Telegram son texto sin formato. Se eliminan el énfasis de
+  Markdown y las comillas invertidas de código; los marcadores de lista se
+  normalizan a `•`.
+- Las herramientas solo muestran los datos de la compañía del contacto; si
+  pertenece a otra compañía, recibe "No encontré resultados".
 
-### Email invoice ingestion on the VM (verified)
+### Ingreso de facturas por correo en la VM (verificado)
 
-Goal: an invoice emailed to a mailbox becomes an intake record in the
-production Odoo, screened by an Azure Function and extracted by Document
-Intelligence. Prerequisites: the Language project and deployment from
-section 18 (`supplier-invoice-email`, `practice-screening-deployment`), the
-Document Intelligence keys already in the VM `.env`, and a disposable mailbox
-(**Fetch Now processes every unread message**).
+Objetivo: que una factura enviada por correo a un buzón se convierta en un
+registro de ingreso en Odoo de producción, después de filtrarla con una Azure
+Function y extraer sus datos con Document Intelligence. Requisitos previos: el
+proyecto y el despliegue de Language de la sección 18
+(`supplier-invoice-email`, `practice-screening-deployment`), las claves de
+Document Intelligence ya configuradas en el `.env` de la VM y un buzón
+desechable (**Fetch Now procesa todos los mensajes sin leer**).
 
-#### A. Create the screening Function App (portal)
+#### A. Crear la Function App de filtrado (portal)
 
-Use the production resource group (`rg-rioclaro-prod`) so that everything
-deployed to production lives together. Roles can still be granted on resources
-in another group.
+Usa el grupo de recursos de producción (`rg-rioclaro-prod`) para mantener en
+un mismo lugar todo lo que se despliegue en producción. De todos modos, puedes
+asignar roles a recursos de otro grupo.
 
-1. Create a **Function App** with the **Flex Consumption** plan. Basics:
-   resource group `rg-rioclaro-prod`, name `rioclaro-screening-942`, region
-   Canada Central, runtime **Python 3.11**, instance size **2048 MB**, zone
-   redundancy **Disabled**.
+1. Crea una **Function App** con el plan **Flex Consumption**. En Basics,
+   configura el grupo de recursos `rg-rioclaro-prod`, el nombre
+   `rioclaro-screening-942`, la región Canada Central, el runtime **Python
+   3.11**, el tamaño de instancia **2048 MB** y la redundancia de zona como
+   **Disabled**.
    ![Basics](docs/screenshots/e1-01-funcapp-basics.png)
-2. Storage: choose **(New)** storage account (a Function App needs its own
-   host storage; do not reuse the Language training storage). Blob diagnostics:
+2. En Storage, elige una cuenta de almacenamiento **(New)** (una Function App
+   necesita su propio almacenamiento de host; no reutilices el almacenamiento
+   de entrenamiento de Language). En el diagnóstico de Blob, elige
    **Configure later**.
    ![Storage](docs/screenshots/e1-02-funcapp-storage.png)
-3. Azure OpenAI: leave unchecked (not used by the screening Function).
+3. En Azure OpenAI, deja la casilla desmarcada (la Function de filtrado no lo
+   usa).
    ![Azure OpenAI](docs/screenshots/e1-03-funcapp-azure-openai-skip.png)
-4. Networking: public access **On**, virtual network integration **Off**. Odoo
-   calls the Function over the internet and the function key protects it.
+4. En Networking, habilita el acceso público (**On**) y deshabilita la
+   integración con la red virtual (**Off**). Odoo llama a la Function por
+   Internet y la clave de la Function la protege.
    ![Networking](docs/screenshots/e1-04-funcapp-networking.png)
-5. Monitoring: Application Insights **Yes**, keep the **(New)** one.
+5. En Monitoring, habilita Application Insights (**Yes**) y conserva la opción
+   **(New)**.
    ![Monitoring](docs/screenshots/e1-05-funcapp-monitoring-appinsights.png)
-6. Durable Functions, Deployment and Authentication: keep defaults. Basic
-   authentication stays disabled because the code is deployed with the Azure
-   CLI.
+6. En Durable Functions, Deployment y Authentication, conserva los valores
+   predeterminados. La autenticación básica permanece deshabilitada porque el
+   código se despliega con Azure CLI.
    ![Deployment tab](docs/screenshots/e1-06-funcapp-deployment-defaults.png)
    ![Authentication tab](docs/screenshots/e1-07-funcapp-authentication-defaults.png)
-7. Review + create, check that the summary matches, then **Create**.
+7. En Review + create, comprueba que el resumen coincida y presiona **Create**.
    ![Review](docs/screenshots/e1-08-funcapp-review-create.png)
-8. Wait for "Your deployment is complete" (about 1 minute for the resources,
-   a bit longer for the app).
+8. Espera a que aparezca "Your deployment is complete" (los recursos tardan
+   alrededor de 1 minuto; la aplicación puede tardar un poco más).
    ![Deployment complete](docs/screenshots/e1-09-funcapp-deployment-complete.png)
 
-#### B. Identity, settings, code and key (Azure CLI)
+#### B. Identidad, configuración, código y clave (Azure CLI)
 
 ```bash
 RG=rg-rioclaro-prod; APP=rioclaro-screening-942
-# 1. Managed identity + role on the Language resource
+# 1. Identidad administrada y rol en el recurso Language
 PID=$(az functionapp identity assign -g $RG -n $APP --query principalId -o tsv)
 LID=$(az cognitiveservices account show -g rg-rioclaro-ai-dev -n rioclaro-language-dev --query id -o tsv)
 az role assignment create --assignee-object-id $PID --assignee-principal-type ServicePrincipal \
   --role "Cognitive Services User" --scope $LID
-# 2. App settings read by azure/email-screening/screening.py
+# 2. Configuración de la aplicación que lee azure/email-screening/screening.py
 az functionapp config appsettings set -g $RG -n $APP --settings \
   LANGUAGE_ENDPOINT=https://<your-language-resource>.cognitiveservices.azure.com \
   LANGUAGE_PROJECT_NAME=supplier-invoice-email \
   LANGUAGE_DEPLOYMENT_NAME=practice-screening-deployment \
   INVOICE_CONFIDENCE_THRESHOLD=0.90
-# 3. Publish only the runtime files (no tests, data or local settings)
+# 3. Publica solo los archivos de ejecución (sin pruebas, datos ni configuración local)
 cd azure/email-screening
 zip /tmp/screening.zip function_app.py screening.py host.json requirements.txt
 az functionapp deployment source config-zip -g $RG -n $APP --src /tmp/screening.zip
-# 4. Function key (never commit or print it)
+# 4. Clave de la Function (nunca la confirmes ni la imprimas)
 az functionapp keys list -g $RG -n $APP --query functionKeys.default -o tsv
 ```
 
-Test the endpoint (route `screen-email`, auth level FUNCTION):
+Prueba el endpoint (ruta `screen-email`, nivel de autenticación FUNCTION):
 
-- Without `?code=<key>` it answers **401**.
-- With the key, a supplier-invoice text and `"hasAttachments": true` returns
-  `{"route": "inspect_attachments", "label": "supplier_invoice", ...}` and a
-  non-invoice text returns `{"route": "ignore", ...}`.
-- The classifier was trained on a small synthetic set, so use phrasings similar
-  to `azure/email-screening/data/synthetic_examples.jsonl` when testing.
+- Sin `?code=<key>`, responde **401**.
+- Con la clave, un texto de factura de proveedor y `"hasAttachments": true`
+  devuelven `{"route": "inspect_attachments", "label": "supplier_invoice", ...}`;
+  un texto que no es de factura devuelve `{"route": "ignore", ...}`.
+- El clasificador se entrenó con un conjunto sintético pequeño; al probarlo,
+  usa frases parecidas a las de
+  `azure/email-screening/data/synthetic_examples.jsonl`.
 
-#### C. Configure the VM
+#### C. Configurar la VM
 
-1. Append `RIOCLARO_SCREENING_FUNCTION_KEY=<key>` to `~/app/deploy/.env` (pipe
-   it over SSH instead of typing it into shell history), then
+1. Agrega `RIOCLARO_SCREENING_FUNCTION_KEY=<key>` a `~/app/deploy/.env`
+   (envíala por una tubería SSH en vez de escribirla en el historial del
+   shell); después, ejecuta
    `docker compose -f compose.prod.yaml up -d --force-recreate odoo`.
-2. Set the system parameters with `odoo shell` (use the DB flags from the
-   checklist above). In Odoo 20 the helpers are typed:
+2. Configura los parámetros del sistema con `odoo shell` (usa los argumentos
+   de base de datos de la lista anterior). En Odoo 20, los métodos auxiliares
+   tienen tipos definidos:
    ```python
    P = env["ir.config_parameter"].sudo()
    P.set_bool("rioclaro_invoice_inbox.screening_enabled", True)
@@ -1530,214 +1436,231 @@ Test the endpoint (route `screen-email`, auth level FUNCTION):
    P.set_int("rioclaro_invoice_inbox.company_id", 1)
    env.cr.commit()
    ```
-   (`set_param` / `get_param` no longer exist.)
-3. In Gmail, with 2-Step Verification on, create an **app password** at
-   https://myaccount.google.com/apppasswords. Use it, never the account
-   password.
-4. In Odoo (developer mode): Settings > Technical > Incoming Mail Servers >
-   New. IMAP, `imap.gmail.com`, port `993`, SSL/TLS, the mailbox user, the app
-   password, action **Supplier Invoice Email**. Press **Confirm**. A
-   "last fetch" time appears once the scheduled fetch runs.
+   (`set_param` y `get_param` ya no existen).
+3. En Gmail, con la verificación en dos pasos habilitada, crea una
+   **contraseña de aplicación** en
+   https://myaccount.google.com/apppasswords. Usa esa contraseña, nunca la de
+   la cuenta.
+4. En Odoo (modo desarrollador): Settings > Technical > Incoming Mail Servers
+   > New. Selecciona IMAP, servidor `imap.gmail.com`, puerto `993`, SSL/TLS,
+   usuario del buzón, contraseña de aplicación y acción **Supplier Invoice
+   Email**. Presiona **Confirm**. La hora de la última consulta aparece cuando
+   se ejecute la tarea programada.
    ![Confirmed IMAP server](docs/screenshots/e1-10-odoo-vm-imap-server-confirmed.png)
-5. To poll more frequently, open Settings > Technical > Scheduled Actions >
-   **Mail: Fetchmail Service**. Set **Execute Every** to `1` **Minute** and
-   leave the action active. This schedule applies to all configured incoming
-   mail servers, not only the invoice mailbox. Odoo may run it later if its
-   scheduled jobs are busy; **Fetch Now** remains available for an immediate
-   check.
+5. Para consultar el correo con más frecuencia, abre Settings > Technical >
+   Scheduled Actions > **Mail: Fetchmail Service**. Configura **Execute Every**
+   como `1` **Minute** y deja activa la acción. Esta programación se aplica a
+   todos los servidores de correo entrante configurados, no solo al buzón de
+   facturas. Si Odoo tiene otras tareas programadas, quizá la ejecute más
+   tarde; **Fetch Now** sigue disponible para consultar de inmediato.
    ![Fetchmail service scheduled every minute](docs/screenshots/e1-15-fetchmail-cron-one-minute.png)
 
-#### D. Live test
+#### D. Prueba en vivo
 
-1. From another account, email the mailbox with an invoice-like body and a PDF
-   invoice attached.
-2. Press **Fetch Now** on the mail server (or wait for the cron). A record
-   appears in Invoice Intake > Supplier Invoice Emails with the sender, the
-   mailbox and the received time.
+1. Desde otra cuenta, envía al buzón un correo con un texto similar al de una
+   factura y un PDF de factura adjunto.
+2. Presiona **Fetch Now** en el servidor de correo (o espera a que se ejecute
+   la tarea cron). Aparecerá un registro en Invoice Intake > Supplier Invoice
+   Emails con el remitente, el buzón y la hora de recepción.
    ![Intake record created from the email](docs/screenshots/e1-11-odoo-intake-record-from-email.png)
-   Low-confidence messages classified as `review` appear in this intake list
-   for a person to inspect. An email with an attachment and explicit invoice
-   wording in its subject, body, or attachment filename is also sent for review
-   if the classifier returns `ignore`. Other high-confidence non-invoices are
-   excluded. Review routing never starts extraction or creates a bill.
-3. Open it: the email body and attachments are in the chatter, the extraction
-   status is *Pending Extraction* and the amounts are 0.
+   Los mensajes clasificados como `review` por tener baja confianza aparecen
+   en esta lista para que alguien los revise. Si un correo tiene un archivo
+   adjunto y menciona explícitamente una factura en el asunto, el cuerpo o el
+   nombre del archivo, también se envía a revisión cuando el clasificador
+   devuelve `ignore`. Se excluyen otros mensajes que con alta confianza no son
+   facturas. El enrutamiento a revisión nunca inicia la extracción ni crea una
+   factura.
+3. Abre el registro: el cuerpo del correo y sus adjuntos aparecen en el
+   chatter, el estado de extracción es *Pending Extraction* y los importes son
+   0.
    ![Before extraction](docs/screenshots/e1-12-odoo-intake-before-extraction.png)
-4. Press **Extract Invoice Data**. Vendor tax ID, invoice number, date,
-   subtotal, taxes, total and the line items are filled, and the chatter logs
-   each changed field.
+4. Presiona **Extract Invoice Data**. Se llenan el RFC del proveedor, el
+   número y la fecha de factura, el subtotal, los impuestos, el total y las
+   partidas; el chatter registra cada campo que cambió.
    ![After extraction](docs/screenshots/e1-13-odoo-intake-extracted.png)
 
-Lesson learned: the first attempt left everything at 0.00 because the email
-had a signature image before the PDF and extraction read the oldest attachment.
-PR #18 now tries PDFs first, then images, and keeps the first result that
-contains an invoice number or total. Always keep the PDF/XML as attachments
-and make sure the VM runs the merged `main`.
 
-### E. Negative test and vendor bill
+### E. Prueba negativa y factura de proveedor
 
-5. Negative test: email a non-invoice message (for example "te invito a comer
-   el viernes") to the mailbox and press **Fetch Now**. No record appears in
-   **Supplier Emails** when the screening Function returns `ignore`.
-6. On an extracted record press **Create Vendor Bill**. The draft bill carries
-   the vendor, invoice number, date, the extracted line and the purchase tax
-   (IVA 16% = $5.60, total $40.60), plus copies of the attachments.
+5. Prueba negativa: envía al buzón un mensaje que no sea una factura (por
+   ejemplo, "te invito a comer el viernes") y presiona **Fetch Now**. Si la
+   Function de filtrado devuelve `ignore`, no aparece ningún registro en
+   **Supplier Emails**.
+6. En un registro con datos extraídos, presiona **Create Vendor Bill**. La
+   factura en borrador incluye el proveedor, número y fecha de factura, la
+   partida extraída y el impuesto de compra (IVA de 16% = $5.60; total $40.60),
+   además de copias de los archivos adjuntos.
    ![Vendor bill with 16% tax](docs/screenshots/e1-14-odoo-vendor-bill-with-tax.png)
 
-Lessons learned:
-- PR #19: the first bill had no taxes because the lines were created without
-  `tax_ids`. The tax rate is now derived from taxes / subtotal and matched to
-  the company's percent purchase tax. Several 16% purchase taxes can exist; the
-  first match is used.
-- PR #20: deleting a bill left the intake at `Invoiced`, hiding the button.
-  Deleting a bill now returns the intake to `In Review` and logs a chatter note.
-- After code changes on the VM run `git pull`, `odoo -u rioclaro_invoice_inbox`
-  with the DB flags, then restart the container.
-
-### F. M7 first slice: plain-text replies, runbook flags, editable rate limit
-
-- Model answers are post-processed by `plain_text()` so Telegram no longer shows
-  literal `**bold**`; bullets are normalised to `•` and the prompt asks for plain text.
-- `deploy/README.md` and `scripts/telegram_webhook.py` now show the required
-  `--db_host/--db_user/--db_password/--addons-path/--http-port=0` flags for
-  `odoo shell` and `odoo -u` (without them they fail with a Postgres socket error).
-- The per-user query limit is editable in **Settings > Río Claro Chatbot**
-  (administrators only): *Queries per Telegram user* (default 5) and *Window (minutes)*
-  (default 5). They are stored as the system parameters
-  `rioclaro_invoice_inbox.telegram_query_rate_limit` and
-  `rioclaro_invoice_inbox.telegram_query_window_minutes`; values below 1 are
-  treated as 1. After deploying run `odoo -u rioclaro_invoice_inbox` so the
-  Settings view loads.
-
-**LAST_COMPLETED_STEP:** email ingestion verified on the VM (screening Function,
-IMAP, extraction, vendor bill with taxes, negative test).
-**Next:** rest of M7 (correlation ID and latency per query, kill switch, budget alert, spend cap, incident owner).
-
-### Query date periods
-
-The read-only sales, purchase, invoice, top-products, and margin tools accept
-an empty period (last 30 days), a day count, an explicit
-`YYYY-MM-DD,YYYY-MM-DD` range, or common natural periods: `hoy`, `ayer`,
-`esta semana`, `semana pasada`, `este mes`, `mes pasado`, `este año`, and
-`últimos N días`. Natural periods use the `America/Mexico_City` business date.
-For example, `este mes` means the first day of the current month through today.
-
-### M9 Owner queries: production verification
-
-Verified from the Owner Telegram contact on the VM:
-
-- Top products returned the top three products by untaxed sales, units sold,
-  and currency.
-- Week-over-week sales comparison returned the current and previous weeks and
-  their difference.
-- Open balances returned accounts receivable/payable and overdue amounts.
-- Asking for the highest-margin category in `este mes` returned no results
-  because there were no confirmed sales in the current month. Asking for the
-  last 30 days returned **Mercancías para Reventa / Limpieza e Higiene /
-  Cuidado del Hogar y Superficies**, with margin **$76.00 MXN (49%)**, revenue
-  **$155.00 MXN**, and cost **$79.00 MXN**.
 
 
-## 17. Draft vendor bill feature verification
+### F. Respuestas en texto plano, parámetros del manual operativo y límite de frecuencia editable
 
-- Started Odoo containers (`docker compose up -d`).
-- Ran unit tests for `rioclaro_invoice_inbox` with proper DB credentials and addon path:
+- Las respuestas del modelo se procesan con `plain_text()` para que Telegram
+  deje de mostrar el formato literal `**bold**`; las viñetas se normalizan a
+  `•` y el prompt solicita texto plano.
+- `deploy/README.md` y `scripts/telegram_webhook.py` ahora indican los
+  argumentos obligatorios `--db_host/--db_user/--db_password/--addons-path/--http-port=0`
+  para `odoo shell` y `odoo -u` (sin ellos, fallan con un error de socket de
+  Postgres).
+- El límite de consultas por usuario se puede editar en **Settings > Río Claro
+  Chatbot** (solo administradores): *Queries per Telegram user* (5 de forma
+  predeterminada) y *Window (minutes)* (5 de forma predeterminada). Se guardan
+  en los parámetros del sistema `rioclaro_invoice_inbox.telegram_query_rate_limit`
+  y `rioclaro_invoice_inbox.telegram_query_window_minutes`; los valores menores
+  que 1 se consideran como 1. Después del despliegue, ejecuta
+  `odoo -u rioclaro_invoice_inbox` para que se cargue la vista de Settings.
+
+**ÚLTIMO PASO COMPLETADO:** ingreso de correo verificado en la VM (Function de
+filtrado, IMAP, extracción, factura de proveedor con impuestos y prueba
+negativa).
+**Siguiente:** terminar M7 (ID de correlación y latencia por consulta,
+interruptor de emergencia, alerta de presupuesto, límite de gasto y persona
+responsable de incidentes).
+
+### Periodos de fechas para las consultas
+
+Las herramientas de solo lectura para ventas, compras, facturas, productos más
+vendidos y márgenes aceptan un periodo vacío (los últimos 30 días), un número
+de días, un rango explícito `YYYY-MM-DD,YYYY-MM-DD` o periodos naturales
+comunes: `hoy`, `ayer`, `esta semana`, `semana pasada`, `este mes`, `mes
+pasado`, `este año` y `últimos N días`. Los periodos naturales usan la fecha
+local de negocio de `America/Mexico_City`. Por ejemplo, `este mes` abarca
+desde el primer día del mes actual hasta hoy.
+
+### M9 Consultas del propietario: verificación en producción
+
+Verificado desde el contacto Owner de Telegram en la VM:
+
+- Los productos principales mostraron los tres productos con mayores ventas
+  antes de impuestos, unidades vendidas y moneda.
+- La comparación de ventas semana contra semana mostró la semana actual, la
+  anterior y la diferencia entre ambas.
+- Los saldos abiertos mostraron las cuentas por cobrar y por pagar, así como
+  los importes vencidos.
+- La consulta por la categoría con mayor margen en `este mes` no devolvió
+  resultados porque no había ventas confirmadas durante el mes actual. Al
+  consultar los últimos 30 días, devolvió **Mercancías para Reventa / Limpieza
+  e Higiene / Cuidado del Hogar y Superficies**, con un margen de **$76.00 MXN
+  (49%)**, ingresos de **$155.00 MXN** y costo de **$79.00 MXN**.
+
+
+## 17. Verificación de la función de facturas de proveedor en borrador
+
+- Se iniciaron los contenedores de Odoo (`docker compose up -d`).
+- Se ejecutaron las pruebas unitarias de `rioclaro_invoice_inbox` con las
+  credenciales correctas de la base de datos y la ruta de módulos:
   ```bash
   docker compose exec odoo odoo -c /etc/odoo/odoo.conf -d test_db --test-enable -i rioclaro_invoice_inbox -t rioclaro_invoice_inbox --stop-after-init --db_host=odoo-db --db_user=odoo --db_password="$ODOO_DB_PASSWORD" --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons --http-port=0
   ```
-- All 19 tests passed (0 failures, 0 errors).
-- Verified UI actions: “Create Vendor Bill” creates a draft `account.move` with copied attachments; “View Vendor Bill” opens the same bill.
-- **Último paso completado:** tests verified; ready to push the `feature/invoice-extraction-draft-bill` branch and open a Pull Request.
+- Pasaron las 19 pruebas (0 fallas, 0 errores).
+- Se verificaron las acciones de la interfaz: **Create Vendor Bill** crea una
+  factura `account.move` en borrador con copias de los archivos adjuntos;
+  **View Vendor Bill** abre esa misma factura.
+- **Último paso completado:** se verificaron las pruebas; la rama
+  `feature/invoice-extraction-draft-bill` está lista para publicarse y abrir un
+  pull request.
 
-## 20. Website Live Chat AI: public-content assistant
+## 20. IA para el chat en vivo del sitio web: asistente de contenido público
 
-The `feature/website-livechat-ai` increment connects Odoo Website Live Chat
-(`website_livechat`) to the existing Azure OpenAI agent. It serves anonymous
-website visitors; it does not connect the Discuss inbox or expose Telegram
-contact permissions.
+El incremento `feature/website-livechat-ai` conecta el chat en vivo del sitio
+web de Odoo (`website_livechat`) con el agente existente de Azure OpenAI. Está
+dirigido a visitantes anónimos del sitio; no conecta la bandeja de Discuss ni
+expone los permisos de contactos de Telegram.
 
-### Scope and safeguards
+### Alcance y medidas de protección
 
-- The assistant can search only published product names/descriptions and
-  published website pages. Product recommendations link product names to their
-  public Odoo shop pages and may include the price shown to an anonymous visitor
-  under the default public website pricelist, currency, fiscal position, and tax
-  display. It cannot access inventory, costs, margins, customer records, orders,
-  invoices, sales, or purchases.
-- Anonymous visitors can ask `/help`, `/ayuda`, or `¿Qué puedes hacer?` to
-  receive a deterministic summary of public capabilities. The response does
-  not list or imply access to Telegram's permission-gated private features.
-- The feature is disabled by default. Enable it only on the Live Chat channel
-  intended for website visitors. Native-chatbot conversations are left to the
-  chatbot. Odoo shows the chat bubble and starts a session only while at least
-  one human operator is online on the channel, so add and keep an operator
-  online. The AI answers until that operator writes a message after the
-  visitor's first message (the automatic welcome message does not count); after
-  that the AI stays silent.
-- Each guest or partner is limited to five visitor questions in a rolling
-  five-minute window across Live Chat conversations. This is not a global Azure
-  spend limit; monitor Azure usage and quotas separately.
-- Azure OpenAI uses the existing `RIOCLARO_AOAI_ENDPOINT`,
-  `RIOCLARO_AOAI_API_KEY`, and `RIOCLARO_AOAI_DEPLOYMENT` settings. No new Azure
-  resource is required. Each request has an eight-second timeout; a complete
-  answer can use two requests, so a response may take up to about 16 seconds.
-  If AI is unavailable, the visitor sees a message asking them to leave their
-  question for a human agent.
-- Useful answers require published product descriptions and useful, published
-  FAQ/help pages. At the time this increment was scoped, the live site had four
-  published products without descriptions and only standard website pages, so
-  add public content before enabling the assistant.
+- El asistente solo puede buscar nombres y descripciones de productos
+  publicados, así como páginas publicadas del sitio web. Las recomendaciones
+  enlazan los nombres de productos con sus páginas públicas en la tienda de
+  Odoo y pueden incluir el precio que ve una persona visitante anónima según
+  la lista de precios pública predeterminada del sitio, la moneda, la posición
+  fiscal y la visualización de impuestos. No puede acceder al inventario,
+  costos, márgenes, registros de clientes, pedidos, facturas, ventas ni compras.
+- Las personas visitantes anónimas pueden enviar `/help`, `/ayuda` o
+  `¿Qué puedes hacer?` para recibir un resumen determinista de las funciones
+  públicas. La respuesta no enumera ni da a entender que haya acceso a las
+  funciones privadas de Telegram sujetas a permisos.
+- La función está deshabilitada de forma predeterminada. Habilítala únicamente
+  en el canal de Live Chat destinado a visitantes del sitio web. Las
+  conversaciones del chatbot nativo se quedan a cargo del chatbot. Odoo muestra
+  la burbuja del chat e inicia una sesión solo mientras haya al menos una
+  persona operadora conectada al canal, así que agrega una y mantenla
+  conectada. La IA responde hasta que esa persona operadora escribe después
+  del primer mensaje de la visita (el mensaje automático de bienvenida no
+  cuenta); a partir de entonces, la IA guarda silencio.
+- Cada invitado o contacto tiene un límite de cinco preguntas en una ventana
+  móvil de cinco minutos entre todas sus conversaciones de Live Chat. Este
+  límite no controla el gasto total de Azure; supervisa por separado el uso y
+  las cuotas de Azure.
+- Azure OpenAI usa la configuración existente `RIOCLARO_AOAI_ENDPOINT`,
+  `RIOCLARO_AOAI_API_KEY` y `RIOCLARO_AOAI_DEPLOYMENT`. No se requiere crear
+  otro recurso de Azure. Cada solicitud tiene un tiempo de espera de ocho
+  segundos; una respuesta completa puede usar dos solicitudes y tardar hasta
+  unos 16 segundos. Si la IA no está disponible, la persona visitante verá un
+  mensaje que le pide dejar su pregunta para un agente humano.
+- Para ofrecer respuestas útiles, se necesitan descripciones de productos y
+  páginas de preguntas frecuentes o ayuda publicadas. Al definir el alcance de
+  este incremento, el sitio activo tenía cuatro productos publicados sin
+  descripción y solo las páginas estándar del sitio. Agrega contenido público
+  antes de habilitar el asistente.
 
-### Enable and verify after deployment
+### Habilitar y verificar después del despliegue
 
-1. Upgrade `rioclaro_invoice_inbox` on the Odoo instance. The module depends on
-   `website_livechat` and `website_sale`; installing/upgrading it installs any
-   missing Odoo dependencies.
-2. In Odoo, open the **Live Chat** app, select the channel used by the website,
-   and open its **Options** tab. Enable **Río Claro AI assistant** and save.
-   Leave other channels disabled unless they are meant to serve public
-   visitors.
-3. Open the public website in a private/incognito browser window and start a
-   new Live Chat conversation. Ask a question answered directly by a published
-   product description or FAQ page, and confirm the reply appears in the chat.
-4. Ask for a product price and then for the cheapest product among a matching
-   group. Confirm the reply uses the public shop price and identifies its
-   currency and tax display. Ask for stock or private order details; the
-   assistant must not provide them. Send six questions within five minutes to
-   verify that the sixth receives the rate-limit message.
-5. Disable **Río Claro AI assistant**, start a fresh conversation, and confirm
-   the AI no longer replies. Native-chatbot conversations, and conversations
-   where a human agent has replied, should not receive competing AI replies.
+1. Actualiza `rioclaro_invoice_inbox` en la instancia de Odoo. El módulo
+   depende de `website_livechat` y `website_sale`; al instalarlo o actualizarlo
+   también se instalan las dependencias de Odoo que hagan falta.
+2. En Odoo, abre la aplicación **Live Chat**, selecciona el canal del sitio
+   web y abre la pestaña **Options**. Habilita **Río Claro AI assistant** y
+   guarda los cambios. Mantén deshabilitados los demás canales, salvo que
+   también deban atender visitantes públicos.
+3. Abre el sitio público en una ventana privada o de incógnito e inicia una
+   conversación nueva de Live Chat. Haz una pregunta que pueda contestarse
+   directamente con la descripción de un producto publicado o una página de
+   preguntas frecuentes; confirma que la respuesta aparezca en el chat.
+4. Pregunta el precio de un producto y luego cuál es el más barato de un grupo
+   de productos coincidentes. Confirma que la respuesta use el precio de la
+   tienda pública e indique la moneda y cómo se muestran los impuestos.
+   Pregunta por existencias o detalles privados de pedidos; el asistente no
+   debe proporcionarlos. Envía seis preguntas en cinco minutos para verificar
+   que la sexta reciba el mensaje de límite de frecuencia.
+5. Deshabilita **Río Claro AI assistant**, inicia una conversación nueva y
+   confirma que la IA ya no responda. Las conversaciones del chatbot nativo y
+   aquellas en las que ya respondió una persona agente no deben recibir
+   respuestas simultáneas de la IA.
 
-### Production verification (2026-11-02)
+### Verificación en producción (2026-11-02)
 
-Verified on the production Odoo site after deploying commit `3eb8154`; the
-general catalog-list behavior was retested after deploying `e10e514`. These
-checks predate public price support:
+Se verificó en el sitio de Odoo de producción después de desplegar el commit
+`3eb8154`; el comportamiento general de la lista del catálogo se volvió a
+probar después de desplegar `e10e514`. Estas comprobaciones son anteriores a
+la compatibilidad con precios públicos:
 
-- An anonymous visitor received a product recommendation for Limpia Pisos
-  Multiusos 1L. The assistant correctly said the available catalog text did not
-  confirm lavender scent.
-- At that time, when asked for prices and stock, the assistant stated that the
-  catalog did not show those details. Public prices are now supported; stock
-  remains private.
-- The sixth question sent within the five-minute window received
+- Una persona visitante anónima recibió una recomendación del producto Limpia
+  Pisos Multiusos 1L. El asistente indicó correctamente que el texto disponible
+  en el catálogo no confirmaba que tuviera aroma a lavanda.
+- En ese momento, cuando se preguntó por precios y existencias, el asistente
+  respondió que el catálogo no mostraba esos datos. Los precios públicos ya
+  están disponibles; las existencias siguen siendo privadas.
+- La sexta pregunta enviada dentro de la ventana de cinco minutos recibió
   `Espera unos minutos antes de volver a consultar.`
-- After the human operator replied, the visitor's next question received no AI
-  response, as intended.
-- Initially, the broad question `¿Qué productos tienen?` returned
+- Después de que respondió la persona operadora, la siguiente pregunta de la
+  visita no recibió respuesta de la IA, como se esperaba.
+- Al principio, la pregunta general `¿Qué productos tienen?` devolvió
   `No encontré resultados para tu consulta.` After deploying the general catalog
-  search fix (`e10e514`), a fresh anonymous chat returned a list including
-  Limpia Pisos Multiusos 1L, Detergente Multiusos 1kg, Cloro Clorox Original,
-  Harpic Power Ultra, and Cloralex Total Power. At that time the reply included
-  no prices or stock quantities.
+  Después de desplegar la corrección de búsqueda general del catálogo
+  (`e10e514`), un chat anónimo nuevo devolvió una lista que incluía Limpia
+  Pisos Multiusos 1L, Detergente Multiusos 1kg, Cloro Clorox Original, Harpic
+  Power Ultra y Cloralex Total Power. En ese momento, la respuesta no incluía
+  precios ni cantidades disponibles.
 
-### Local verification
+### Verificación local
 
-Run the add-on test suite using the repository's Odoo 20/PostgreSQL Compose
-stack. As with other module tests, use a fresh test database and the complete
-add-ons path. Compose injects the configured database password into the
-one-off Odoo container; the shell passes it to Odoo without printing it:
+Ejecuta la suite de pruebas del módulo con la pila de Odoo 20/PostgreSQL de
+Compose del repositorio. Como en las demás pruebas de módulos, usa una base de
+datos nueva para las pruebas y la ruta completa de módulos. Compose inyecta la
+contraseña configurada de la base de datos en el contenedor temporal de Odoo;
+el shell se la pasa a Odoo sin imprimirla:
 
 ```bash
 docker compose up -d odoo-db
@@ -1750,15 +1673,17 @@ docker compose run --rm --no-deps -T odoo sh -c \
   --http-port=0'
 ```
 
-The tests cover published-content filtering, rejection of private tool names,
-the public-only Azure tool allow-list, visitor replies, default-off behavior,
-and per-visitor rate limiting.
+Las pruebas cubren el filtrado de contenido publicado, el rechazo de nombres
+de herramientas privadas, la lista de herramientas públicas permitidas para
+Azure, las respuestas a visitantes, el comportamiento deshabilitado de forma
+predeterminada y el límite de frecuencia por visitante.
 
-## 21. Telegram public product recommendations
+## 21. Recomendaciones públicas de productos por Telegram
 
-Telegram public text questions use the same published product catalog and FAQ
-content as Website Live Chat. A first private message automatically creates a
-zero-permission `public` Telegram Contact and starts onboarding.
+Las preguntas públicas por texto en Telegram usan el mismo catálogo de
+productos publicados y el mismo contenido de preguntas frecuentes que el chat
+en vivo del sitio web. El primer mensaje privado crea automáticamente un
+contacto `public` de Telegram sin permisos e inicia el proceso de bienvenida.
 
 - The bot asks for a name, then offers an optional email. It saves the email
   only when voluntarily provided; the prompt explains that Odoo administrators

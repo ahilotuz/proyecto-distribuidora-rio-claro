@@ -1,7 +1,9 @@
 """Register, inspect or remove the Telegram webhook (run in the Odoo shell).
 
 Usage (production, from deploy/):
-    docker compose -f compose.prod.yaml exec -T -e ACTION=set odoo \
+    WEBHOOK_BASE_URL="https://$(grep '^SITE_DOMAIN=' .env | cut -d= -f2-)" \
+      docker compose -f compose.prod.yaml exec -T -e ACTION=set \
+      -e WEBHOOK_BASE_URL odoo \
       odoo shell -c /etc/odoo/odoo.conf -d rioclaro --db_host=odoo-db \
       --db_user=odoo --db_password="$ODOO_DB_PASSWORD" --http-port=0 \
       --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons \
@@ -17,9 +19,11 @@ from odoo.addons.rioclaro_invoice_inbox.models.telegram_client import TelegramCl
 
 action = os.environ.get("ACTION", "set")
 client = TelegramClient(os.environ["RIOCLARO_TELEGRAM_BOT_TOKEN"])
-base_url = os.environ.get("WEBHOOK_BASE_URL", "https://rioclaro.ropech.com")
 
 if action == "set":
+    base_url = os.environ.get("WEBHOOK_BASE_URL", "").rstrip("/")
+    if not base_url:
+        raise SystemExit("Set WEBHOOK_BASE_URL to the public HTTPS base URL.")
     client.set_webhook(
         f"{base_url}/rioclaro/telegram/webhook",
         os.environ["RIOCLARO_TELEGRAM_WEBHOOK_SECRET"],

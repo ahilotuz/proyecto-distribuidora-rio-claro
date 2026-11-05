@@ -3,6 +3,19 @@
 Target: Ubuntu 24.04 (Arm64) VM, Docker Compose, Caddy with automatic Let's Encrypt HTTPS.
 Only ports 80/443 (and SSH 22) are public; Odoo and Postgres are never published.
 
+```mermaid
+flowchart LR
+    Internet((Internet)) -->|HTTP 80 / HTTPS 443| Caddy[Caddy<br/>TLS + reverse proxy]
+    Caddy -->|private Compose network| Odoo[Odoo<br/>internal port 8069]
+    Odoo -->|private Compose network| Postgres[(PostgreSQL<br/>no published port)]
+    Odoo -->|persistent volume| OdooData[(Odoo filestore)]
+    Postgres -->|persistent volume| DBData[(PostgreSQL data)]
+    Odoo -->|optional outbound HTTPS| Azure[Azure services]
+    Odoo -->|outbound HTTPS / polling| Telegram[Telegram API]
+    Odoo -->|optional outbound IMAP| Mail[Incoming mail]
+    Telegram -->|inbound HTTPS webhook| Caddy
+```
+
 ## First deployment
 
 ```bash
@@ -13,7 +26,7 @@ cd ~/app/deploy
 cp odoo.prod.conf.example odoo.prod.conf
 sed -i "s|CHANGE_ME_LONG_RANDOM|$(openssl rand -base64 24 | tr -d '/+=')|" odoo.prod.conf
 cat > .env <<EOF
-SITE_DOMAIN=rioclaro.ropech.com
+SITE_DOMAIN=rioclaro.example.com
 ODOO_DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
 EOF
 chmod 600 .env odoo.prod.conf
@@ -50,9 +63,9 @@ docker compose -f compose.prod.yaml up -d
 
 ## Checks
 
-- `curl -sI https://rioclaro.ropech.com/web/login` returns `200`.
-- `curl -m 5 http://20.151.139.73:8069` fails (port not published).
-- `https://rioclaro.ropech.com/web/database/manager` returns 404 (blocked in Caddy and `list_db = False`).
+- `curl -sI https://rioclaro.example.com/web/login` returns `200`.
+- `curl -m 5 http://203.0.113.1:8069` fails (port not published).
+- `https://rioclaro.example.com/web/database/manager` returns 404 (blocked in Caddy and `list_db = False`).
 
 ## Telegram webhook (M6)
 
@@ -65,7 +78,8 @@ cd ~/app/deploy
 printf 'RIOCLARO_TELEGRAM_WEBHOOK_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
 # add RIOCLARO_TELEGRAM_BOT_TOKEN (and the AOAI/Speech keys) to .env, then:
 docker compose -f compose.prod.yaml up -d
-docker compose -f compose.prod.yaml exec -T -e ACTION=set odoo \
+WEBHOOK_BASE_URL="https://$(grep '^SITE_DOMAIN=' .env | cut -d= -f2-)" \
+docker compose -f compose.prod.yaml exec -T -e ACTION=set -e WEBHOOK_BASE_URL odoo \
   odoo shell -c /etc/odoo/odoo.conf -d rioclaro --db_host=odoo-db --db_user=odoo \
   --db_password="$(grep ^ODOO_DB_PASSWORD= .env | cut -d= -f2-)" \
   --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/usr/lib/python3/dist-packages/addons,/mnt/extra-addons \

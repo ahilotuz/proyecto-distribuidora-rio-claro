@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  email-screening:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: azure/email-screening/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r azure/email-screening/requirements.txt
+      - name: Run unit tests
+        working-directory: azure/email-screening
+        run: python -m unittest discover -s tests -v
+      - name: Validate synthetic dataset
+        working-directory: azure/email-screening
+        run: python prepare_dataset.py --output "$RUNNER_TEMP/rioclaro-dataset"
+      - name: Compile Python sources
+        run: python -m compileall -q azure/email-screening custom_addons scripts

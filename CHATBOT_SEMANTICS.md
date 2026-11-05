@@ -71,6 +71,41 @@ Notes:
 - Fields returned are a fixed projection; no bank details, internal notes,
   attachments or personal data beyond partner display name.
 
+```mermaid
+flowchart TD
+    Incoming[Incoming Telegram request] --> Resolve[Resolve or create contact]
+    Resolve -->|First contact| Onboard[Create public-only contact<br/>request name and optional email]
+    Onboard --> EndOnboard[End request before any Azure call]
+    Resolve -->|Inactive contact| Deny[Reject before bot/AI processing]
+    Resolve -->|Active contact| Kind{Public or private request?}
+
+    Kind -->|Public catalog/FAQ| PublicTools[Allow public tools only]
+    PublicTools --> Published[(Published products and website content)]
+    Published --> PublicAnswer[Ground answer in public results]
+
+    Kind -->|Private business data| Company{Explicit company named?}
+    Company -->|No| AskCompany[Ask contact to choose an allowed company]
+    Company -->|Yes| AllowedCompany{Company in contact allow-list?}
+    AllowedCompany -->|No| Deny
+    AllowedCompany -->|Yes| Permission{Tool permission and partner scope valid?}
+    Permission -->|No| Deny
+    Permission -->|Yes| Pick[Azure OpenAI selects from fixed tool list]
+    Pick --> Recheck[Odoo revalidates tool and arguments]
+    Recheck --> Read[Odoo ORM read with company/partner restrictions]
+    Read --> Data[(Authorized Odoo records)]
+    Data --> Sanitize[Fixed projection; sanitize and bound results]
+    Sanitize --> Answer[Azure OpenAI phrases from returned rows]
+    Answer --> Reply[Return response to contact]
+    PublicAnswer --> Reply
+    AskCompany --> Reply
+    Deny --> Reply
+```
+
+The private path cannot proceed when the company is omitted or unauthorized.
+The model's tool selection is not authorization: Odoo applies the scope again
+before every read. Public tools bypass private-company selection but remain
+limited to published content.
+
 ## 3. Service objectives (initial)
 
 | Objective | Target |

@@ -252,7 +252,8 @@ la Function no descarga ni inspecciona el contenido de los archivos.
 ### 📥 Recepción de facturas
 
 - Recibe correos mediante el alias configurado en Odoo y archivos de Telegram enviados por contactos autorizados.
-- Conserva el mensaje original y sus adjuntos; evita crear otra recepción cuando se procesa el mismo mensaje.
+- Conserva el mensaje original y sus adjuntos, y deduplica correos por `Message-ID` y mensajes de Telegram por su identificador.
+- Sigue los estados `Received`, `In Review`, `Invoiced` y `Rejected`.
 - Permite revisar, rechazar o crear una factura de proveedor en borrador. La coincidencia por RFC ayuda a identificar al proveedor.
 
 ### 🤖 Integración con Azure AI Document Intelligence
